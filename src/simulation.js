@@ -7,35 +7,35 @@ import * as stage_to_mac_grid from './stages/to_mac_grid';
 
 class Simulation {
 	constructor(canvas, gl, particles=100, gridResolution=[100,100,100]) {
-   	this.controller = new Controller(canvas);
+		this.controller = new Controller(canvas);
 
-   	this.NUM_PARTICLES = 1000;
-   	this.GRID_X_SIZE = gridResolution[0];
-   	this.GRID_Y_SIZE = gridResolution[1];
-   	this.GRID_Z_SIZE = gridResolution[2];
+		this.NUM_PARTICLES = 1000;
+		this.GRID_X_SIZE = gridResolution[0];
+		this.GRID_Y_SIZE = gridResolution[1];
+		this.GRID_Z_SIZE = gridResolution[2];
 
-   	this.GRID_X_STEP = 1/gridResolution[0];
-   	this.GRID_Y_STEP = 1/gridResolution[1];
-   	this.GRID_Z_STEP = 1/gridResolution[2];
+		this.GRID_X_STEP = 1/gridResolution[0];
+		this.GRID_Y_STEP = 1/gridResolution[1];
+		this.GRID_Z_STEP = 1/gridResolution[2];
 
-   	// Stores lagrangian particle position and velocites
-   	this.particlePositions = gl.createTexture();
-   	this.particleVelocities = gl.createTexture();
+		// Stores lagrangian particle position and velocites
+		this.particlePositions = gl.createTexture();
+		this.particleVelocities = gl.createTexture();
 
-   	// Simulation
-   	this.gridVelocity         = gl.createTexture();
-   	this.gridVelocitySum      = gl.createTexture();
-   	this.gridVelocityWeight   = gl.createTexture();
+		// Simulation
+		this.gridVelocity         = gl.createTexture();
+		this.gridVelocitySum      = gl.createTexture();
+		this.gridVelocityWeight   = gl.createTexture();
 
-   	this.gridVelocityForces   = gl.createTexture();
-   	this.gridVelocityBoundary = gl.createTexture();
-   	this.gridLabels           = gl.createTexture();
-   	this.gridPsuedoPressure   = gl.createTexture();
-   	this.gridVelocitySolved   = gl.createTexture();
+		this.gridVelocityForces   = gl.createTexture();
+		this.gridVelocityBoundary = gl.createTexture();
 
-   	gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+		this.gridLabels           = gl.createTexture();
+		this.gridDivergence		  = gl.createTexture();
+
+
+		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 	}
-
 }
 
 function initSimulation(canvas) {
@@ -53,7 +53,7 @@ function initSimulation(canvas) {
    	return alert('need EXT_color_buffer_float');
 	}
 
-	util.getPrograms(gl, 'label_grid', 'to_mac_grid_pre', 'to_mac_grid', 'add_force', 'enforce_boundary', 'copy').then(programs => {
+	util.getPrograms(gl, 'label_grid', 'to_mac_grid_pre', 'to_mac_grid', 'add_force', 'enforce_boundary', 'divergence', 'copy').then(programs => {
 		startSimulation(canvas, gl, programs);
 	});
 }
@@ -78,8 +78,8 @@ function startSimulation(canvas, gl, programs) {
 
 
 	/*
-   	Stage 1: Label cells as fluid or air
-   */
+		Stage 1: Label cells as fluid or air
+	*/
 	let program = programs['label_grid'];
   	let textureSize = Math.ceil(Math.sqrt(sim.GRID_X_SIZE*sim.GRID_Y_SIZE*sim.GRID_Z_SIZE));
   	util.texImage2D(gl, sim.gridLabels, textureSize, textureSize, null);
@@ -248,9 +248,31 @@ function startSimulation(canvas, gl, programs) {
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
 	/*
-		Stage 5: 
+		Stage 5: Computing divergence of velocity grid
 	*/
-	  
+	const fb_divergence = gl.createFramebuffer();
+	gl.bindFramebuffer(gl.FRAMEBUFFER, fb_divergence);
+	gl.viewport(0, 0, textureSize, textureSize);
+
+	util.texImage2D(gl, sim.gridDivergence, textureSize, textureSize, null);
+	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridDivergence);
+
+	program = programs['divergence'];
+	let vao_divergence = gl.createVertexArray();
+	gl.bindVertexArray(vao_divergence);
+	util.bufferDataAttribute(gl, program, "a_square_vertex", new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
+	gl.clearColor(0, 0, 0, 0);
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	gl.useProgram(program);
+	gl.bindVertexArray(vao_divergence);
+	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform3f(gl.getUniformLocation(program, "u_gridStepSize"), sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
+	gl.uniform1i(gl.getUniformLocation(program, "u_gridTextureSize"), gridTextureSize);
+	gl.uniform1i(gl.getUniformLocation(program, "u_textureSize"), textureSize);
+	gl.uniform1i(gl.getUniformLocation(program, 'u_velocity'), 0);
+	gl.activeTexture(gl.TEXTURE0);
+	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityBoundary);
+	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
 	/*
 		Render result to canvas
@@ -271,7 +293,7 @@ function startSimulation(canvas, gl, programs) {
 
 	gl.uniform1i(gl.getUniformLocation(program, 'u_texture'), 0);
 	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityBoundary);
+	gl.bindTexture(gl.TEXTURE_2D, sim.gridDivergence);
 
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
