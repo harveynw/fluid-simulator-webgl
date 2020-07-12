@@ -18,16 +18,16 @@ bool isZero(float n) {
  
 void main() {
 	// Look up a color from the texture.
-    vec3 vel = texture(u_velocity_part, v_texture_coord).xyz;
-    vec3 div = texture(u_divisor_part, v_texture_coord).xyz;
+	vec3 vel = texture(u_velocity_part, v_texture_coord).xyz;
+	vec3 div = texture(u_divisor_part, v_texture_coord).xyz;
 
-    // If no particles make a weighted contribution, stop divide by zero
-    for(int i = 0; i < 3; i++) {
-    	if(isZero(div[i])) {
-   			vel[i] = 0.0;
-   			div[i] = 1.0;
-   		}
-    }
+	// If no particles make a weighted contribution, stop divide by zero
+	for(int i = 0; i < 3; i++) {
+		if(isZero(div[i])) {
+			vel[i] = 0.0;
+			div[i] = 1.0;
+		}
+	}
 
-   	outColor = vec4(vel/div, 1.0);
+	outColor = vec4(vel/div, 1.0);
 }

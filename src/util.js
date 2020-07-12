@@ -2,8 +2,8 @@
 
 export function bufferDataAttribute(gl, program, attributeName, data, componentSize, type, divisor = 0) {
    let attributeLocation = gl.getAttribLocation(program, attributeName);
-	console.log("Attribute location found for " + attributeName+":");
-  	console.log(attributeLocation);
+	//console.log("Attribute location found for " + attributeName+":");
+  	//console.log(attributeLocation);
   	let buffer = gl.createBuffer();
 
 	gl.enableVertexAttribArray(attributeLocation);
@@ -76,11 +76,12 @@ export async function getPrograms(gl, ...programNames) {
   	let sources = await getShaderSources(programNames);
   	Object.keys(sources).forEach(name => {
     	let src = sources[name];
-
    	let vertexShaderSource = src[0];
-    	let fragmentShaderSource = src[1];
+      let fragmentShaderSource = src[1];
 
-    	programs[name] = createProgram(gl, vertexShaderSource, fragmentShaderSource);
+      console.log("Creating program: " + name);
+
+      programs[name] = createProgram(gl, vertexShaderSource, fragmentShaderSource);
   	});
 
   	console.log(programs);
@@ -115,13 +116,15 @@ function createProgram(gl, vertexShader, fragmentShader) {
 }
 
 async function getShaderSources(shaderNames) {
+   const util = await fetch('/shaders/utilities.sh').then(body => body.text());
+
   	let shaderSources = {};
   	let promises = shaderNames.map(shader => {
     	let vertexShaderPromise = fetch('/shaders/' + shader + '.vsh').then(body => {
-      	return body.text();
+      	return body.text().then(text => text.replace("@import-util;", util));
     	});
     	let fragmentShaderPromise = fetch('/shaders/' + shader + '.fsh').then(body => {
-      	return body.text();
+      	return body.text().then(text => text.replace("@import-util;", util));
     	});
     	return Promise.all([vertexShaderPromise, fragmentShaderPromise]);
   	});
