@@ -20,10 +20,7 @@ vec3 fetchVelocity(ivec3 indices) {
 	return(texelFetch(u_velocity, texels, 0).xyz);
 }
 
-void main() {
-	int particle_index = int(round(v_particle_index));
-
-	vec3 position = texelFetch(u_particle_position, ivec2(particle_index, 0), 0).xyz;
+vec3 interpolateVelocity(vec3 position) {
 	vec3 positionScaled = position / u_gridStepSize;
 	ivec3 indices = ivec3(int(floor(positionScaled.x)), int(floor(positionScaled.y)), int(floor(positionScaled.z)));
 
@@ -34,8 +31,15 @@ void main() {
 
 	vec3 alpha = positionScaled - vec3(indices);
 
-	vec3 interpolated = (1.0-alpha)*velocityCentre + alpha*vec3(velX, velY, velZ);
+	return((1.0-alpha)*velocityCentre + alpha*vec3(velX, velY, velZ));
+}
+
+void main() {
+	int particle_index = int(round(v_particle_index));
+
+	vec3 position = texelFetch(u_particle_position, ivec2(particle_index, 0), 0).xyz;
+
+	vec3 interpolated = interpolateVelocity(position);
 
 	outColor = vec4(interpolated,1);
-	//outColor = vec4(0.5,1.0,0,1.0);
 }

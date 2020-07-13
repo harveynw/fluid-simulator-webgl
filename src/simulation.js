@@ -63,7 +63,9 @@ function initSimulation(canvas) {
 		'pressure_iteration',
 		'subtract_pressure_gradient',
 		'grid_to_particle',
-		'copy'
+		'advection',
+		'copy',
+		'display_particles'
 	).then(programs => {
 		startSimulation(canvas, gl, programs);
 	});
@@ -80,7 +82,7 @@ function startSimulation(canvas, gl, programs) {
 	/* 
    	Setting up initial position and velocity textures
 	*/
-	let posData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => Math.random()*0.5));
+	let posData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => Math.random()));
 	//util.bindTexImage2D(gl, gl.TEXTURE0, sim.particlePositions, sim.NUM_PARTICLES, 1, posData);
 	util.texImage2D(gl, sim.particlePositions, sim.NUM_PARTICLES, 1, posData);
 
@@ -410,35 +412,96 @@ function startSimulation(canvas, gl, programs) {
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
 
-	
+	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform3f(gl.getUniformLocation(program, "u_gridStepSize"), sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
+	gl.uniform1i(gl.getUniformLocation(program, "u_gridTextureSize"), gridTextureSize);
+	gl.uniform1f(gl.getUniformLocation(program, "u_dt"), 0.1);
+	gl.uniform1i(gl.getUniformLocation(program, "u_no_particles"), sim.NUM_PARTICLES);
 
+	gl.uniform1i(gl.getUniformLocation(program, 'u_velocity'), 0);
+	gl.activeTexture(gl.TEXTURE0);
+	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocity);
+	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_position'), 1);
+	gl.activeTexture(gl.TEXTURE1);
+	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
+	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_velocity'), 2);
+	gl.activeTexture(gl.TEXTURE2);
+	gl.bindTexture(gl.TEXTURE_2D, sim.particleVelocities);
+	
 	gl.drawArrays(gl.POINTS, 0, sim.NUM_PARTICLES);
 	
 	swapTextures(sim, 'particlePositions', 'particlePositionsCopy');
 
-
 	/*
 		Render result to canvas
 	*/
-	program = programs['copy'];
+	//canvasShowTexture(gl, programs, sim.particlePositions);
+	canvasShowParticles(gl, programs, sim);
+}
+
+function canvasShowTexture(gl, programs, texture) {
+	let program = programs['copy'];
 	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 	gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
 	let vao_show = gl.createVertexArray();
 	gl.bindVertexArray(vao_show);
-
 	util.bufferDataAttribute(gl, program, "a_square_vertex", new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
 
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
 	gl.bindVertexArray(vao_show);
-
 	gl.uniform1i(gl.getUniformLocation(program, 'u_texture'), 0);
 	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocity);
+	gl.bindTexture(gl.TEXTURE_2D, texture);
 
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+}
+
+function canvasShowParticles(gl, programs, sim) {
+	let program = programs['display_particles'];
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
+
+	let vao_show = gl.createVertexArray();
+	gl.bindVertexArray(vao_show);
+	util.bufferDataAttribute(gl, program, "a_particle_index", stage_to_mac_grid.data_particleIndices(sim), 1, gl.INT);
+
+	gl.clearColor(0, 0, 0, 0);
+	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+	gl.useProgram(program);
+
+	gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_matrix'), false, getModelViewProjectionMatrix(gl, sim.controller));
+
+	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_position'), 0);
+	gl.activeTexture(gl.TEXTURE0);
+	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
+
+	gl.drawArrays(gl.POINTS, 0, sim.NUM_PARTICLES);
+}
+
+function getModelViewProjectionMatrix(gl, controller) {
+	let projection = mat4.create();
+    let modelview = mat4.create();
+    let modelviewProjection = mat4.create();
+    mat4.perspective(projection, 1, gl.canvas.clientWidth/gl.canvas.clientHeight, 0.05, 1000);
+    mat4.lookAt(modelview, [-1,-1,1], [0.5,0.5,0.5], [0,0,1]);
+    /* Apply the modeling tranformation to modelview. */
+    let translation = [0, 0, 0];
+    let degToRad = d => d * Math.PI / 180;
+    let rotation = controller.viewRotation.map(theta => degToRad(theta));
+    let scale = [1, 1, 1];
+    mat4.rotateX(modelview, modelview, rotation[0]);
+    mat4.rotateY(modelview, modelview, rotation[1]);
+    mat4.rotateZ(modelview, modelview, rotation[2]);
+    mat4.scale(modelview, modelview, scale);
+    mat4.translate(modelview, modelview, translation);
+    /* Multiply the projection matrix times the modelview matrix to give the
+       combined transformation matrix, and send that to the shader program. */
+     
+    mat4.multiply(modelviewProjection, projection, modelview);
+   	return(modelviewProjection);
 }
 
 function swapTextures(sim, texture1Key, texture2Key) {
