@@ -45,7 +45,8 @@ void main() {
 
 	vec3 velocityMidPoint = interpolateVelocity(position + 0.5*velocity*u_dt);
 
-	vec3 newPosition = position + u_dt*velocityMidPoint;
+	//vec3 newPosition = position + u_dt*velocityMidPoint;
+	vec3 newPosition = position + u_dt*velocity;
 
 	float small = 0.0001;
 	vec3 boundLower = vec3(small, small, small);
