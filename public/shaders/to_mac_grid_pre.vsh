@@ -1,14 +1,14 @@
 #version 300 es
  
-in int a_particle_index;
-in vec3 a_displacement;
+layout(location = 0) in int a_particle_index;
+layout(location = 1) in vec3 a_displacement;
 
-uniform sampler2D u_particle_position;
-uniform sampler2D u_particle_velocity;
+layout(location = $PARTICLE_POSITION) uniform sampler2D u_particle_position;
+layout(location = $PARTICLE_VELOCITY) uniform sampler2D u_particle_velocity;
 
-uniform ivec3 u_gridSize;
-uniform vec3 u_gridStepSize;
-uniform int u_textureSize;
+layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
+layout(location = $GRID_STEP_SIZE) uniform vec3 u_gridStepSize;
+layout(location = $GRID_TEXTURE_SIZE) uniform float u_gridTextureSize;
 
 out vec3 v_velocity;
 out vec3 v_weight;
@@ -19,12 +19,10 @@ void main() {
 	vec3 position = texelFetch(u_particle_position, ivec2(a_particle_index, 0), 0).xyz;
 	vec3 velocity = texelFetch(u_particle_velocity, ivec2(a_particle_index, 0), 0).xyz;
 
-	vec3 particleCell = vec3(positionToIndices(position, u_gridSize));
-	vec3 gridCell = particleCell + a_displacement;
-	vec3 gridCellPosition = gridCell/vec3(u_gridSize);
+	vec3 displacedCellPosition = (floor(position/u_gridStepSize) + a_displacement)*u_gridStepSize;
 
 	// Any displacements outside grid can be ignored
-	if(any(lessThan(gridCellPosition, vec3(0,0,0))) || any(greaterThan(gridCellPosition, vec3(1,1,1)))) {
+	if(any(greaterThanEqual(displacedCellPosition,vec3(1,1,1))) || any(lessThan(displacedCellPosition,vec3(0,0,0)))) {
 		gl_Position = vec4(1000, 1000, 1000, 1);
 		return;
 	}
@@ -33,9 +31,10 @@ void main() {
 	float weightY = (abs(position.y - gridCellPosition.y) - 3.0) * -1.0;
 	float weightZ = (abs(position.z - gridCellPosition.z) - 3.0) * -1.0;
 
-	v_weight = vec3(weightX, weightY, weightZ);
+	v_weight = (abs(position - displacedCellPosition)/u_gridStepSize - 3.0) * -1.0;
 	v_velocity = velocity*v_weight;
 
-  	gl_Position = vec4(indicesToClipSpace(ivec3(gridCell), u_gridSize+1, u_textureSize), 0, 1);
+	vec2 textureCoords = positionToTexturePadded(displacedPosition, u_gridSize, u_gridTextureSize);
+  	gl_Position = vec4(textureCoords, 0, 1);
   	gl_PointSize = 1.0;
 }

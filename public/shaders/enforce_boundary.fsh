@@ -2,9 +2,9 @@
 
 precision highp float;
 
-uniform sampler2D u_texture;
-uniform int u_textureSize;
-uniform ivec3 u_gridSize;
+layout(location = $GENERIC_TEXTURE) uniform sampler2D u_texture;
+layout(location = $GRID_TEXTURE_SIZE) uniform float u_gridTextureSize;
+layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
 
 in vec2 v_texture_coord;
 
@@ -14,16 +14,16 @@ out vec4 outColor;
  
 void main() {
 	vec3 velocity = texture(u_texture, v_texture_coord).xyz;
-	ivec3 cellCoordinate = textureCoordsToIndices(v_texture_coord, u_gridSize + 1, u_textureSize);
+	vec3 position = textureToPositionPadded(v_texture_coord, u_gridSize, u_gridTextureSize);
 
 	// Correct velocity if boundary cell
-	if(cellCoordinate.x == 0 || cellCoordinate.x == u_gridSize.x) {
+	if(position.x == 0.0 || position.x == 1.0) {
 		velocity = vec3(0, velocity.y, velocity.z);
 	}
-	if(cellCoordinate.y == 0 || cellCoordinate.y == u_gridSize.y) {
+	if(position.y == 0.0 || position.y == 1.0) {
 		velocity = vec3(velocity.x, 0, velocity.z);
 	}
-	if(cellCoordinate.z == 0 || cellCoordinate.z == u_gridSize.z) {
+	if(position.z == 0.0 || position.z == 1.0) {
 		velocity = vec3(velocity.x, velocity.y, 0);
 	}
 

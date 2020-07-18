@@ -6,7 +6,7 @@ import * as stage_label_grid from './stages/label_grid';
 import * as stage_to_mac_grid from './stages/to_mac_grid';
 
 class Simulation {
-	constructor(canvas, gl, particles=100, gridResolution=[100,100,100]) {
+	constructor(canvas, gl, particles=100, gridResolution=[20,20,20]) {
 		this.controller = new Controller(canvas);
 
 		this.NUM_PARTICLES = 1000;
@@ -45,6 +45,21 @@ class Simulation {
 	}
 }
 
+function initialPositions(sim) {
+	let array = [];
+	for(let x = 0; x < 10; x++) {
+		for(let y = 0; y < 10; y++) {
+			for(let z = 0; z < 10; z++) {
+				array.push(x * sim.GRID_X_STEP * 0.1);
+				array.push(y * sim.GRID_Y_STEP * 0.1);
+				array.push(1 - (z*sim.GRID_Z_STEP*0.1));
+				array.push(1);
+			}
+		}
+	}
+	return(Float32Array.from(array));
+}
+
 function initSimulation(canvas) {
 	const gl = util.initOpenGl(canvas);
 
@@ -53,7 +68,27 @@ function initSimulation(canvas) {
    		return alert('need EXT_color_buffer_float');
 	}
 
-	util.getPrograms(gl,
+	let locations = {
+		'GENERIC_TEXTURE': 1,
+		'DT': 2,
+		'FORCE': 3,
+		'VELOCITY_TEXTURE': 4,
+		'PARTICLE_POSITION': 5,
+		'PARTICLE_VELOCITY': 6,
+		'GRID_SIZE': 7,
+		'GRID_STEP_SIZE': 8,
+		'GRID_TEXTURE_SIZE': 9,
+		'NO_PARTICLES': 10,
+		'MVP_MATRIX': 11,
+		'LABEL_TEXTURE': 12,
+		'TEXTURE_SIZE': 13,
+		'PRESSURE_TEXTURE': 14,
+		'DIVERGENCE_TEXTURE': 15,
+		'VELOCITY_PART': 16,
+		'DIVISOR_PART': 17
+	};
+
+	util.getPrograms(gl, locations,
 		'label_grid',
 		'to_mac_grid_pre',
 		'to_mac_grid',
@@ -72,7 +107,8 @@ function initSimulation(canvas) {
 		/* 
    			Setting up initial position and velocity textures
 		*/
-		let posData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => Math.random()));
+		let posData = initialPositions(sim);
+		//let posData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => Math.random()));
 
 		//let velData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill(0));
 		let velData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => (Math.random()*2.0)-1.0));
@@ -101,18 +137,31 @@ function initSimulation(canvas) {
 		/*
 			Setting up VAOs
 		*/
-		const vao = {}
+		const vao = {};
+
 		vao['particle_index'] = gl.createVertexArray();
 		gl.bindVertexArray(vao['particle_index']);
-		util.bufferDataAttribute(gl, program, "a_particle_index", stage_label_grid.data_particleIndices(sim), 1, gl.INT);
+		// a_particle_index
+		util.bufferDataAttribute(gl, 0, stage_label_grid.data_particleIndices(sim), 1, gl.INT);
 
-		const dt = 0.01;
-		runSimulation(canvas, gl, programs, sim, dt);
+		vao['mac_grid_pre'] = gl.createVertexArray();
+		gl.bindVertexArray(vao['mac_grid_pre']);
+		// a_particle_index, a_displacement
+		util.bufferDataAttribute(gl, 0, stage_to_mac_grid.data_particleIndices(sim), 1, gl.INT);
+		util.bufferDataAttribute(gl, 1, stage_to_mac_grid.data_displacement(sim), 3, gl.FLOAT, 1);
+
+		vao['square_vertices'] = gl.createVertexArray();
+		gl.bindVertexArray(vao['square_vertices']);
+		// a_square_vertex
+		util.bufferDataAttribute(gl, 0, new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
+
+		const dt = 0.1;
+		runSimulation(canvas, gl, programs, vao, sim, locations, dt);
 	});
 }
 
 
-function runSimulation(canvas, gl, programs, sim, dt) {
+function runSimulation(canvas, gl, programs, vao, sim, locations, dt) {
 	const textureSize = Math.ceil(Math.sqrt(sim.GRID_X_SIZE*sim.GRID_Y_SIZE*sim.GRID_Z_SIZE));
 	const gridTextureSize = Math.ceil(Math.sqrt((sim.GRID_X_SIZE+1)*(sim.GRID_Y_SIZE+1)*(sim.GRID_Z_SIZE+1)));
 
@@ -120,42 +169,32 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 		Creating FBO for simulation steps
 	*/
 	const frameBuffer = gl.createFramebuffer();
+	gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer);
 
 	/*
 		Stage 1: Label cells as fluid or air
 	*/
 	let program = programs['label_grid'];
-	gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer);
-
   	// Create and bind the framebuffer
   	gl.viewport(0, 0, textureSize, textureSize);
-
 	// attach the texture as the first color attachment
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridLabels);
 
-	// Create a vertex array object (attribute state)
-	let vao_label_grid = gl.createVertexArray();
-	// and make it the one we're currently working with
-	gl.bindVertexArray(vao_label_grid);
-	util.bufferDataAttribute(gl, program, "a_particle_index", stage_label_grid.data_particleIndices(sim), 1, gl.INT);
-	//alert(gl.checkFramebufferStatus(gl.FRAMEBUFFER) + " need:" + gl.FRAMEBUFFER_COMPLETE);
-	// Clear the canvas
-	//alert(gl.checkFramebufferStatus(fb));
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	// Tell it to use our program (pair of shaders)
 	gl.useProgram(program);
-	gl.bindVertexArray(vao_label_grid);
-	// Textures
-	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_position'), 0);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_velocity'), 1);
+	gl.bindVertexArray(vao['particle_index']);
+
+	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform1f(locations['TEXTURE_SIZE'], textureSize);
+
+	gl.uniform1i(locations['PARTICLE_POSITION'], 0);
+	gl.uniform1i(locations['PARTICLE_VELOCITY'], 1);
 	gl.activeTexture(gl.TEXTURE0);
 	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
 	gl.activeTexture(gl.TEXTURE1);
 	gl.bindTexture(gl.TEXTURE_2D, sim.particleVelocities);
-	// Useful simulation properties
-	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform1i(gl.getUniformLocation(program, "u_textureSize"), textureSize);
+
 	gl.drawArrays(gl.POINTS, 0, sim.NUM_PARTICLES);
 
 	/*
@@ -169,12 +208,6 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocitySum);
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT1, sim.gridVelocityWeight);
 
-	let vao_to_mac_grid_pre = gl.createVertexArray();
-	gl.bindVertexArray(vao_to_mac_grid_pre);
-
-	util.bufferDataAttribute(gl, program, "a_particle_index", stage_to_mac_grid.data_particleIndices(sim), 1, gl.INT);
-	util.bufferDataAttribute(gl, program, "a_displacement", stage_to_mac_grid.data_displacement(sim), 3, gl.FLOAT, 1);
-
 	gl.blendEquation(gl.FUNC_ADD);
 
 	gl.clearColor(0, 0, 0, 0);
@@ -184,18 +217,18 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 		gl.COLOR_ATTACHMENT0,
 		gl.COLOR_ATTACHMENT1
 	]);
+	gl.bindVertexArray(vao['mac_grid_pre']);
 
-	gl.bindVertexArray(vao_to_mac_grid_pre);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_position'), 0);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_velocity'), 1);
+	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
+	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
+
+	gl.uniform1i(locations['PARTICLE_POSITION'], 0);
+	gl.uniform1i(locations['PARTICLE_VELOCITY'], 1);
 	gl.activeTexture(gl.TEXTURE0);
 	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
 	gl.activeTexture(gl.TEXTURE1);
 	gl.bindTexture(gl.TEXTURE_2D, sim.particleVelocities);
-
-	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform3f(gl.getUniformLocation(program, "u_gridStepSize"), sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1i(gl.getUniformLocation(program, "u_textureSize"), gridTextureSize);
 
 	gl.drawArraysInstanced(gl.POINTS, 0, sim.NUM_PARTICLES, stage_to_mac_grid.data_displacement(sim).length/3);
 
@@ -210,18 +243,14 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocity);
 
-	let vao_to_mac_grid = gl.createVertexArray();
-	gl.bindVertexArray(vao_to_mac_grid);
-
-	util.bufferDataAttribute(gl, program, "a_square_vertex", new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
-
 	gl.clearColor(0,0,0,0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
+	gl.bindVertexArray(vao['square_vertices']);
 
-	gl.bindVertexArray(vao_to_mac_grid);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_velocity_part'), 0);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_divisor_part'), 1);
+	gl.uniform1i(locations['VELOCITY_PART'], 0);
+	gl.uniform1i(locations['DIVISOR_PART'], 1);
+
 	gl.activeTexture(gl.TEXTURE0);
 	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocitySum);
 	gl.activeTexture(gl.TEXTURE1);
@@ -237,18 +266,13 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocityForces);
 
-	let vao_add_force = gl.createVertexArray();
-	gl.bindVertexArray(vao_add_force);
-
-	util.bufferDataAttribute(gl, program, "a_square_vertex", new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
-
 	gl.clearColor(0,0,0,0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
+	gl.bindVertexArray(vao['square_vertices']);
 
-	gl.bindVertexArray(vao_add_force);
-	gl.uniform3f(gl.getUniformLocation(program, "u_force"), 0.0, 0.0, 10.0);
-	gl.uniform1f(gl.getUniformLocation(program, "u_dt"), dt);
+	gl.uniform3f(locations['FORCE'], 0.0, 0.0, -10.0);
+	gl.uniform1f(locations['DT'], dt);
 
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
@@ -260,16 +284,16 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocityBoundary);
 
 	program = programs['enforce_boundary'];
-	let vao_enforce_boundary = gl.createVertexArray();
-	gl.bindVertexArray(vao_enforce_boundary);
-	util.bufferDataAttribute(gl, program, "a_square_vertex", new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
+
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
-	gl.bindVertexArray(vao_enforce_boundary);
-	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform1i(gl.getUniformLocation(program, "u_textureSize"), gridTextureSize);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_texture'), 0);
+	gl.bindVertexArray(vao['square_vertices']);
+
+	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
+
+	gl.uniform1i(locations['GENERIC_TEXTURE'], 0);
 	gl.activeTexture(gl.TEXTURE0);
 	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityForces);
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
@@ -282,44 +306,46 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridDivergence);
 
 	program = programs['divergence'];
-	let vao_divergence = gl.createVertexArray();
-	gl.bindVertexArray(vao_divergence);
-	util.bufferDataAttribute(gl, program, "a_square_vertex", new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
+
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
-	gl.bindVertexArray(vao_divergence);
-	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform1i(gl.getUniformLocation(program, "u_gridTextureSize"), gridTextureSize);
-	gl.uniform1i(gl.getUniformLocation(program, "u_textureSize"), textureSize);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_velocity'), 0);
+	gl.bindVertexArray(vao['square_vertices']);
+
+	gl.uniform3i(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
+	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
+	gl.uniform1f(locations['TEXTURE_SIZE'], textureSize);
+
+	gl.uniform1i(locations['VELOCITY_TEXTURE'], 0);
 	gl.activeTexture(gl.TEXTURE0);
 	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityBoundary);
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
 	/*
 		Stage 6: Computing pressure field via Jacobi iterative method for a relatively sparse system
 	*/
 	gl.viewport(0, 0, textureSize, textureSize);
 
 	program = programs['pressure_iteration'];
-	let vao_pressure = gl.createVertexArray();
-	gl.bindVertexArray(vao_pressure);
-	util.bufferDataAttribute(gl, program, "a_square_vertex", new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
 	gl.useProgram(program);
-	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform1i(gl.getUniformLocation(program, "u_gridTextureSize"), gridTextureSize);
-	gl.uniform1i(gl.getUniformLocation(program, "u_textureSize"), textureSize);
+	gl.bindVertexArray(vao['square_vertices']);
 
-	gl.uniform1i(gl.getUniformLocation(program, 'u_pressure'), 0);
+	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
+	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
+	gl.uniform1f(locations['TEXTURE_SIZE'], textureSize);
 
-	gl.uniform1i(gl.getUniformLocation(program, 'u_label'), 1);
+	gl.uniform1i(locations['PRESSURE_TEXTURE'], 0);
+
+	gl.uniform1i(locations['LABEL_TEXTURE'], 1);
 	gl.activeTexture(gl.TEXTURE1);
 	gl.bindTexture(gl.TEXTURE_2D, sim.gridLabels);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_divergence'), 2);
+	gl.uniform1i(locations['DIVERGENCE_TEXTURE'], 2);
 	gl.activeTexture(gl.TEXTURE2);
 	gl.bindTexture(gl.TEXTURE_2D, sim.gridDivergence);
 
-	for(let iteration = 0; iteration < 30; iteration++) {
+	for(let iteration = 0; iteration < 15; iteration++) {
 		util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridPressureCopy);
 		// Is the clear not needed because of alpha?
 		gl.clearColor(0, 0, 0, 0);
@@ -339,24 +365,22 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocityUpdated);
 
 	program = programs['subtract_pressure_gradient'];
-	let vao_subtract_pressure_gradient = gl.createVertexArray();
-	gl.bindVertexArray(vao_subtract_pressure_gradient);
-	util.bufferDataAttribute(gl, program, "a_square_vertex", new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
+
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
-	gl.bindVertexArray(vao_subtract_pressure_gradient);
+	gl.bindVertexArray(vao['square_vertices']);
 
-	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform1i(gl.getUniformLocation(program, "u_gridTextureSize"), gridTextureSize);
-	gl.uniform1i(gl.getUniformLocation(program, "u_textureSize"), textureSize);
-	gl.uniform3f(gl.getUniformLocation(program, "u_gridStepSize"), sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1f(gl.getUniformLocation(program, "u_dt"), dt);
+	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
+	gl.uniform1f(locations['TEXTURE_SIZE'], textureSize);
+	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
+	gl.uniform1f(locations['DT'], dt);
 
-	gl.uniform1i(gl.getUniformLocation(program, 'u_velocity'), 0);
+	gl.uniform1i(locations['VELOCITY_TEXTURE'], 0);
 	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocity);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_pressure'), 1);
+	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityBoundary);
+	gl.uniform1i(locations['PRESSURE_TEXTURE'], 1);
 	gl.activeTexture(gl.TEXTURE1);
 	gl.bindTexture(gl.TEXTURE_2D, sim.gridPressure);
 
@@ -370,22 +394,21 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.particleVelocitiesCopy);
 
 	program = programs['grid_to_particle'];
-	let vao_grid_to_particle = gl.createVertexArray();
-	gl.bindVertexArray(vao_grid_to_particle);
-	util.bufferDataAttribute(gl, program, "a_particle_index", stage_to_mac_grid.data_particleIndices(sim), 1, gl.INT);
+
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
+	gl.bindVertexArray(vao['particle_index']);
 
-	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform3f(gl.getUniformLocation(program, "u_gridStepSize"), sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1i(gl.getUniformLocation(program, "u_gridTextureSize"), gridTextureSize);
-	gl.uniform1i(gl.getUniformLocation(program, "u_no_particles"), sim.NUM_PARTICLES);
+	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
+	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
+	gl.uniform1f(locations['NO_PARTICLES'], sim.NUM_PARTICLES);
 
-	gl.uniform1i(gl.getUniformLocation(program, 'u_velocity'), 0);
+	gl.uniform1i(locations['VELOCITY_TEXTURE'], 0);
 	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocity);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_position'), 1);
+	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityUpdated);
+	gl.uniform1i(locations['PARTICLE_POSITION'], 1);
 	gl.activeTexture(gl.TEXTURE1);
 	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
 
@@ -401,26 +424,25 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.particlePositionsCopy);
 
 	program = programs['advection'];
-	let vao_advection = gl.createVertexArray();
-	gl.bindVertexArray(vao_advection);
-	util.bufferDataAttribute(gl, program, "a_particle_index", stage_to_mac_grid.data_particleIndices(sim), 1, gl.INT);
+
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
+	gl.bindVertexArray(vao['particle_index']);
 
-	gl.uniform3i(gl.getUniformLocation(program, "u_gridSize"), sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform3f(gl.getUniformLocation(program, "u_gridStepSize"), sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1i(gl.getUniformLocation(program, "u_gridTextureSize"), gridTextureSize);
-	gl.uniform1f(gl.getUniformLocation(program, "u_dt"), dt);
-	gl.uniform1i(gl.getUniformLocation(program, "u_no_particles"), sim.NUM_PARTICLES);
+	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
+	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
+	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
+	gl.uniform1f(locations['DT'], dt);
+	gl.uniform1i(locations['NO_PARTICLES'], sim.NUM_PARTICLES);
 
-	gl.uniform1i(gl.getUniformLocation(program, 'u_velocity'), 0);
+	gl.uniform1i(locations['VELOCITY_TEXTURE'], 0);
 	gl.activeTexture(gl.TEXTURE0);
 	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocity);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_position'), 1);
+	gl.uniform1i(locations['PARTICLE_POSITION'], 1);
 	gl.activeTexture(gl.TEXTURE1);
 	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_velocity'), 2);
+	gl.uniform1i(locations['PARTICLE_VELOCITY'], 2);
 	gl.activeTexture(gl.TEXTURE2);
 	gl.bindTexture(gl.TEXTURE_2D, sim.particleVelocities);
 	
@@ -431,54 +453,50 @@ function runSimulation(canvas, gl, programs, sim, dt) {
 	/*
 		Render result to canvas
 	*/
-	canvasShowTexture(gl, programs, sim.gridVelocityBoundary);
-	//canvasShowParticles(gl, programs, sim);
+	//canvasShowTexture(gl, programs, vao, locations, sim.gridPressure);
+	canvasShowParticles(gl, programs, vao, locations, sim);
 
-	//setTimeout(() => runSimulation(canvas, gl, programs, sim, dt), 500);
-	//requestAnimationFrame(() => runSimulation(canvas, gl, programs, sim));
+	let rate = 0.05;
+	setTimeout(() => runSimulation(canvas, gl, programs, vao, sim, locations, rate), 10000*rate);
+
+	//requestAnimationFrame(() => runSimulation(canvas, gl, programs, vao, sim, locations, dt));
 }
 
-function canvasShowTexture(gl, programs, texture) {
+function canvasShowTexture(gl, programs, vao, locations, texture) {
 	util.resizeToDisplay(gl.canvas);
 
 	let program = programs['copy'];
 	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 	gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
-	let vao_show = gl.createVertexArray();
-	gl.bindVertexArray(vao_show);
-	util.bufferDataAttribute(gl, program, "a_square_vertex", new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
-
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
 	gl.useProgram(program);
-	gl.bindVertexArray(vao_show);
-	gl.uniform1i(gl.getUniformLocation(program, 'u_texture'), 0);
+	gl.bindVertexArray(vao['square_vertices']);
+
+	gl.uniform1i(locations['GENERIC_TEXTURE'], 0);
 	gl.activeTexture(gl.TEXTURE0);
 	gl.bindTexture(gl.TEXTURE_2D, texture);
 
 	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
-function canvasShowParticles(gl, programs, sim) {
+function canvasShowParticles(gl, programs, vao, locations, sim) {
 	util.resizeToDisplay(gl.canvas);
 
 	let program = programs['display_particles'];
 	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 	gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
-	let vao_show = gl.createVertexArray();
-	gl.bindVertexArray(vao_show);
-	util.bufferDataAttribute(gl, program, "a_particle_index", stage_to_mac_grid.data_particleIndices(sim), 1, gl.INT);
-
 	gl.clearColor(0, 0, 0, 0);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 	gl.useProgram(program);
+	gl.bindVertexArray(vao['particle_index']);
 
-	gl.uniformMatrix4fv(gl.getUniformLocation(program, 'u_matrix'), false, getModelViewProjectionMatrix(gl, sim.controller));
+	gl.uniformMatrix4fv(locations['MVP_MATRIX'], false, getModelViewProjectionMatrix(gl, sim.controller));
 
-	gl.uniform1i(gl.getUniformLocation(program, 'u_particle_position'), 0);
+	gl.uniform1i(locations['PARTICLE_POSITION'], 0);
 	gl.activeTexture(gl.TEXTURE0);
 	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
 

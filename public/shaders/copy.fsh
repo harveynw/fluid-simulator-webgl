@@ -2,7 +2,7 @@
 
 precision highp float;
 
-uniform sampler2D u_texture;
+layout(location = $GENERIC_TEXTURE) uniform sampler2D u_texture;
 
 in vec2 v_texture_coord;
 

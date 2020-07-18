@@ -4,8 +4,8 @@ export function checkFramebuffer(gl, checkID) {
 	alert("Check " + checkID + ": " + gl.checkFramebufferStatus(gl.FRAMEBUFFER) + " / " + gl.FRAMEBUFFER_COMPLETE);
 }
 
-export function bufferDataAttribute(gl, program, attributeName, data, componentSize, type, divisor = 0) {
-	let attributeLocation = gl.getAttribLocation(program, attributeName);
+export function bufferDataAttribute(gl, attributeLocation, data, componentSize, type, divisor = 0) {
+	//let attributeLocation = gl.getAttribLocation(program, attributeName);
 	//console.log("Attribute location found for " + attributeName+":");
   	//console.log(attributeLocation);
 	let buffer = gl.createBuffer();
@@ -34,7 +34,7 @@ export function bufferDataAttribute(gl, program, attributeName, data, componentS
 
 export function framebufferTexture2D(gl, attachment, texture) {
 	gl.framebufferTexture2D(
-	gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, texture, 0);
+		gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, texture, 0);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -75,9 +75,9 @@ export function resizeToDisplay(canvas) {
 	}
 }
 
-export async function getPrograms(gl, ...programNames) {
+export async function getPrograms(gl, locations, ...programNames) {
 	let programs = {};
-	let sources = await getShaderSources(programNames);
+	let sources = await getShaderSources(programNames, locations);
 	Object.keys(sources).forEach(name => {
 		let src = sources[name];
 		let vertexShaderSource = src[0];
@@ -119,16 +119,26 @@ function createProgram(gl, vertexShader, fragmentShader) {
 	gl.deleteProgram(program);
 }
 
-async function getShaderSources(shaderNames) {
-	const util = await fetch('/shaders/utilities.sh').then(body => body.text());
+async function getShaderSources(shaderNames, locations) {
+	const util = await fetch('/shaders/utilities.c').then(body => body.text());
 
 	let shaderSources = {};
 	let promises = shaderNames.map(shader => {
 		let vertexShaderPromise = fetch('/shaders/' + shader + '.vsh').then(body => {
-			return body.text().then(text => text.replace("@import-util;", util));
+			return body.text().then(text => {
+				text = substituteLocations(text, locations);
+				text = text.replace("@import-util;", util);
+				console.log(text);
+				return text;
+			});
 		});
 		let fragmentShaderPromise = fetch('/shaders/' + shader + '.fsh').then(body => {
-			return body.text().then(text => text.replace("@import-util;", util));
+			return body.text().then(text => {
+				text = substituteLocations(text, locations);
+				text = text.replace("@import-util;", util);
+				console.log(text);
+				return text;
+			});
 		});
 		return Promise.all([vertexShaderPromise, fragmentShaderPromise]);
 	});
@@ -141,4 +151,11 @@ async function getShaderSources(shaderNames) {
 	});
 	console.log(shaderSources);
 	return shaderSources;
+}
+
+function substituteLocations(src, locations) {
+	Object.keys(locations).forEach(name => {
+		src = src.replace("$" + name, locations[name]);
+	});
+	return src;
 }
