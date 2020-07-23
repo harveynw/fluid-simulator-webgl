@@ -2,14 +2,15 @@
 
 precision highp float;
 
-layout(location = $VELOCITY_TEXTURE) uniform sampler2D u_velocity;
-layout(location = $PARTICLE_POSITION) uniform sampler2D u_particle_position;
-layout(location = $PARTICLE_VELOCITY) uniform sampler2D u_particle_velocity;
+// TODO this should be u_velocity_updated
+uniform sampler2D u_velocity;
+uniform sampler2D u_particle_position;
+uniform sampler2D u_particle_velocity;
 
-layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
-layout(location = $GRID_STEP_SIZE) uniform vec3 u_gridStepSize;
-layout(location = $GRID_TEXTURE_SIZE) uniform float u_gridTextureSize;
-layout(location = $DT) uniform float u_dt;
+uniform vec3 u_gridSize;
+uniform vec3 u_gridStepSize;
+uniform float u_gridTextureSize;
+uniform float u_dt;
 
 in float v_particle_index;
 

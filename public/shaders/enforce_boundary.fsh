@@ -2,9 +2,9 @@
 
 precision highp float;
 
-layout(location = $GENERIC_TEXTURE) uniform sampler2D u_texture;
-layout(location = $GRID_TEXTURE_SIZE) uniform float u_gridTextureSize;
-layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
+uniform sampler2D u_velocity_forces;
+uniform float u_gridTextureSize;
+uniform vec3 u_gridSize;
 
 in vec2 v_texture_coord;
 
@@ -13,7 +13,7 @@ out vec4 outColor;
 @import-util;
  
 void main() {
-	vec3 velocity = texture(u_texture, v_texture_coord).xyz;
+	vec3 velocity = texture(u_velocity_forces, v_texture_coord).xyz;
 	vec3 position = textureToPositionPadded(v_texture_coord, u_gridSize, u_gridTextureSize);
 
 	// Correct velocity if boundary cell

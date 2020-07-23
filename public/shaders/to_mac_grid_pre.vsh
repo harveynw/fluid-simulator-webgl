@@ -3,12 +3,12 @@
 layout(location = 0) in int a_particle_index;
 layout(location = 1) in vec3 a_displacement;
 
-layout(location = $PARTICLE_POSITION) uniform sampler2D u_particle_position;
-layout(location = $PARTICLE_VELOCITY) uniform sampler2D u_particle_velocity;
+uniform sampler2D u_particle_position;
+uniform sampler2D u_particle_velocity;
 
-layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
-layout(location = $GRID_STEP_SIZE) uniform vec3 u_gridStepSize;
-layout(location = $GRID_TEXTURE_SIZE) uniform float u_gridTextureSize;
+uniform vec3 u_gridSize;
+uniform vec3 u_gridStepSize;
+uniform float u_gridTextureSize;
 
 out vec3 v_velocity;
 out vec3 v_weight;
@@ -27,14 +27,14 @@ void main() {
 		return;
 	}
 
-	float weightX = (abs(position.x - gridCellPosition.x) - 3.0) * -1.0;
-	float weightY = (abs(position.y - gridCellPosition.y) - 3.0) * -1.0;
-	float weightZ = (abs(position.z - gridCellPosition.z) - 3.0) * -1.0;
+	float weightX = (abs(position.x - displacedCellPosition.x) - 3.0) * -1.0;
+	float weightY = (abs(position.y - displacedCellPosition.y) - 3.0) * -1.0;
+	float weightZ = (abs(position.z - displacedCellPosition.z) - 3.0) * -1.0;
 
 	v_weight = (abs(position - displacedCellPosition)/u_gridStepSize - 3.0) * -1.0;
 	v_velocity = velocity*v_weight;
 
-	vec2 textureCoords = positionToTexturePadded(displacedPosition, u_gridSize, u_gridTextureSize);
+	vec2 textureCoords = positionToTexturePadded(displacedCellPosition, u_gridSize, u_gridTextureSize);
   	gl_Position = vec4(textureCoords, 0, 1);
   	gl_PointSize = 1.0;
 }

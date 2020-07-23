@@ -2,14 +2,14 @@
 
 precision highp float;
 
-layout(location = $PRESSURE_TEXTURE) uniform sampler2D u_pressure;
-layout(location = $LABEL_TEXTURE) uniform sampler2D u_label;
-layout(location = $DIVERGENCE_TEXTURE) uniform sampler2D u_divergence;
+uniform sampler2D u_pressure;
+uniform sampler2D u_label;
+uniform sampler2D u_divergence;
 
-layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
-layout(location = $GRID_STEP_SIZE) uniform vec3 u_gridStepSize;
-layout(location = $TEXTURE_SIZE) uniform float u_textureSize;
-layout(location = $GRID_TEXTURE_SIZE) uniform float u_gridTextureSize;
+uniform vec3 u_gridSize;
+uniform vec3 u_gridStepSize;
+uniform float u_textureSize;
+uniform float u_gridTextureSize;
 
 in vec2 v_texture_coord;
 

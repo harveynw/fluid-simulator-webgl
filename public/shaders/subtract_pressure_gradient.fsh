@@ -2,14 +2,14 @@
 
 precision highp float;
 
-layout(location = $VELOCITY_TEXTURE) uniform sampler2D u_velocity;
-layout(location = $PRESSURE_TEXTURE) uniform sampler2D u_pressure;
+uniform sampler2D u_velocity_boundary;
+uniform sampler2D u_pressure;
 
-layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
-layout(location = $TEXTURE_SIZE) uniform float u_textureSize;
-layout(location = $GRID_TEXTURE_SIZE) uniform float u_gridTextureSize;
-layout(location = $GRID_STEP_SIZE) uniform vec3 u_gridStepSize;
-layout(location = $DT) uniform float u_dt;
+uniform vec3 u_gridSize;
+uniform float u_textureSize;
+uniform float u_gridTextureSize;
+uniform vec3 u_gridStepSize;
+uniform float u_dt;
 
 in vec2 v_texture_coord;
 
@@ -31,7 +31,7 @@ float getPressureAtCell(vec3 position) {
 }
  
 void main() {
-	vec3 velocity = texture(u_velocity, v_texture_coord).rgb;
+	vec3 velocity = texture(u_velocity_boundary, v_texture_coord).rgb;
 	vec3 position = textureToPositionPadded(v_texture_coord, u_gridSize, u_gridTextureSize);
 
 	float pressureInCell = getPressureAtCell(position);

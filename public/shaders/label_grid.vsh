@@ -2,11 +2,11 @@
  
 in int a_particle_index;
 
-layout(location = $PARTICLE_POSITION) uniform sampler2D u_particle_position;
-layout(location = $PARTICLE_VELOCITY) uniform sampler2D u_particle_velocity;
+uniform sampler2D u_particle_position;
+uniform sampler2D u_particle_velocity;
 
-layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
-layout(location = $TEXTURE_SIZE) uniform float u_textureSize;
+uniform vec3 u_gridSize;
+uniform float u_textureSize;
 
 @import-util;
 

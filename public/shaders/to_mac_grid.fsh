@@ -2,8 +2,8 @@
 precision highp float;
  
 // our texture
-layout(location = $VELOCITY_PART) uniform sampler2D u_velocity_part;
-layout(location = $DIVISOR_PART) uniform sampler2D u_divisor_part;
+uniform sampler2D u_velocity_part;
+uniform sampler2D u_divisor_part;
  
 // the texCoords passed in from the vertex shader.
 in vec2 v_texture_coord;

@@ -41,7 +41,7 @@ vec3 textureToPosition(vec2 textureCoord, vec3 cellCount, float textureSize) {
 	float divisor = textureCoord.y*textureSize-0.5;
 	float index = (textureCoord.x + divisor) * textureSize - 0.5;
 
-	float zCoeff = cellCount.x * cellCount.y
+	float zCoeff = cellCount.x * cellCount.y;
 	float z = floor(index/zCoeff);
 	float y = floor((index - z * zCoeff)/cellCount.x);
 	float x = index - z * zCoeff - y * cellCount.x;
@@ -49,7 +49,7 @@ vec3 textureToPosition(vec2 textureCoord, vec3 cellCount, float textureSize) {
 	return vec3(x, y, z)/cellCount;
 }
 vec3 textureToPositionPadded(vec2 textureCoord, vec3 cellCount, float textureSize) {
-	vec3 position = textureToPosition(textureCoord, cellCount+1, textureSize);
+	vec3 position = textureToPosition(textureCoord, cellCount+1.0, textureSize);
 	return(position * ((cellCount+1.0)/cellCount));
 }
 

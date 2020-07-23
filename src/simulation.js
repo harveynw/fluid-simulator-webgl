@@ -1,6 +1,7 @@
 import * as util from './util';
 import { mat4 } from 'gl-matrix';
-import Controller from './controller';
+import Controller from './Controller';
+import ComputeStep from './Compute';
 
 import * as stage_label_grid from './stages/label_grid';
 import * as stage_to_mac_grid from './stages/to_mac_grid';
@@ -10,6 +11,7 @@ class Simulation {
 		this.controller = new Controller(canvas);
 
 		this.NUM_PARTICLES = 1000;
+		this.GRID_SIZE = gridResolution;
 		this.GRID_X_SIZE = gridResolution[0];
 		this.GRID_Y_SIZE = gridResolution[1];
 		this.GRID_Z_SIZE = gridResolution[2];
@@ -17,6 +19,11 @@ class Simulation {
 		this.GRID_X_STEP = 1/gridResolution[0];
 		this.GRID_Y_STEP = 1/gridResolution[1];
 		this.GRID_Z_STEP = 1/gridResolution[2];
+		this.GRID_STEP = [
+			this.GRID_X_STEP,
+			this.GRID_Y_STEP,
+			this.GRID_Z_STEP
+		];
 
 		// Stores lagrangian particle position and velocites
 		this.particlePositions      = gl.createTexture();
@@ -68,27 +75,7 @@ function initSimulation(canvas) {
    		return alert('need EXT_color_buffer_float');
 	}
 
-	let locations = {
-		'GENERIC_TEXTURE': 1,
-		'DT': 2,
-		'FORCE': 3,
-		'VELOCITY_TEXTURE': 4,
-		'PARTICLE_POSITION': 5,
-		'PARTICLE_VELOCITY': 6,
-		'GRID_SIZE': 7,
-		'GRID_STEP_SIZE': 8,
-		'GRID_TEXTURE_SIZE': 9,
-		'NO_PARTICLES': 10,
-		'MVP_MATRIX': 11,
-		'LABEL_TEXTURE': 12,
-		'TEXTURE_SIZE': 13,
-		'PRESSURE_TEXTURE': 14,
-		'DIVERGENCE_TEXTURE': 15,
-		'VELOCITY_PART': 16,
-		'DIVISOR_PART': 17
-	};
-
-	util.getPrograms(gl, locations,
+	util.getPrograms(gl,
 		'label_grid',
 		'to_mac_grid_pre',
 		'to_mac_grid',
@@ -133,7 +120,7 @@ function initSimulation(canvas) {
 		util.texImage2D(gl, sim.gridVelocityUpdated, gridTextureSize, gridTextureSize, null);
 		util.texImage2D(gl, sim.particleVelocitiesCopy, sim.NUM_PARTICLES, 1, null);
 		util.texImage2D(gl, sim.particlePositionsCopy, sim.NUM_PARTICLES, 1, null);
-
+		
 		/*
 			Setting up VAOs
 		*/
@@ -155,13 +142,15 @@ function initSimulation(canvas) {
 		// a_square_vertex
 		util.bufferDataAttribute(gl, 0, new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
 
-		const dt = 0.1;
-		runSimulation(canvas, gl, programs, vao, sim, locations, dt);
+		/*
+			Setting up stages
+		*/
+		runSimulation(gl, programs, vao, sim);
 	});
 }
 
 
-function runSimulation(canvas, gl, programs, vao, sim, locations, dt) {
+function runSimulation(gl, programs, vao, sim) {
 	const textureSize = Math.ceil(Math.sqrt(sim.GRID_X_SIZE*sim.GRID_Y_SIZE*sim.GRID_Z_SIZE));
 	const gridTextureSize = Math.ceil(Math.sqrt((sim.GRID_X_SIZE+1)*(sim.GRID_Y_SIZE+1)*(sim.GRID_Z_SIZE+1)));
 
@@ -171,315 +160,201 @@ function runSimulation(canvas, gl, programs, vao, sim, locations, dt) {
 	const frameBuffer = gl.createFramebuffer();
 	gl.bindFramebuffer(gl.FRAMEBUFFER, frameBuffer);
 
-	/*
-		Stage 1: Label cells as fluid or air
-	*/
-	let program = programs['label_grid'];
-  	// Create and bind the framebuffer
-  	gl.viewport(0, 0, textureSize, textureSize);
-	// attach the texture as the first color attachment
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridLabels);
+	const textureDim = [textureSize, textureSize];
+	const gridTextureDim = [gridTextureSize, gridTextureSize];
+	const particleDim = [sim.NUM_PARTICLES, 1];
 
-	gl.clearColor(0, 0, 0, 0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['particle_index']);
+	let label = new ComputeStep(gl, programs['label_grid'], sim, frameBuffer, vao['particle_index'],
+		{ targetTextures: ['gridLabels'], targetDimensions: textureDim});
 
-	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform1f(locations['TEXTURE_SIZE'], textureSize);
+	let to_mac_grid_pre = new ComputeStep(gl, programs['to_mac_grid_pre'], sim, frameBuffer, vao['mac_grid_pre'],
+		{ targetTextures: ['gridVelocitySum', 'gridVelocityWeight'], targetDimensions: gridTextureDim}, gl.FUNC_ADD);
 
-	gl.uniform1i(locations['PARTICLE_POSITION'], 0);
-	gl.uniform1i(locations['PARTICLE_VELOCITY'], 1);
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
-	gl.activeTexture(gl.TEXTURE1);
-	gl.bindTexture(gl.TEXTURE_2D, sim.particleVelocities);
+	let to_mac_grid = new ComputeStep(gl, programs['to_mac_grid'], sim, frameBuffer, vao['square_vertices'],
+		{ targetTextures: ['gridVelocity'], targetDimensions: gridTextureDim});
 
-	gl.drawArrays(gl.POINTS, 0, sim.NUM_PARTICLES);
+	let add_force = new ComputeStep(gl, programs['add_force'], sim, frameBuffer, vao['square_vertices'],
+		{ targetTextures: ['gridVelocityForces'], targetDimensions: gridTextureDim});
 
-	/*
-		Stage 2: Transfer particle velocities to staggered grid 
-	*/
-	// Step 1 Compute velocity and weight contributions to grid for each particle
-	program = programs['to_mac_grid_pre'];
+	let enforce_boundary = new ComputeStep(gl, programs['enforce_boundary'], sim, frameBuffer, vao['square_vertices'],
+		{ targetTextures: ['gridVelocityBoundary'], targetDimensions: gridTextureDim});
 
-	gl.viewport(0, 0, gridTextureSize, gridTextureSize);
+	let divergence = new ComputeStep(gl, programs['divergence'], sim, frameBuffer, vao['square_vertices'],
+		{ targetTextures: ['gridDivergence'], targetDimensions: textureDim});
 
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocitySum);
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT1, sim.gridVelocityWeight);
+	let pressure_iteration = new ComputeStep(gl, programs['pressure_iteration'], sim, frameBuffer, vao['square_vertices'],
+		{ targetTextures: ['gridPressureCopy'], targetDimensions: textureDim});
 
-	gl.blendEquation(gl.FUNC_ADD);
+	let subtract_gradient = new ComputeStep(gl, programs['subtract_pressure_gradient'], sim, frameBuffer, vao['square_vertices'],
+		{ targetTextures: ['gridVelocityUpdated'], targetDimensions: gridTextureDim});
 
-	gl.clearColor(0, 0, 0, 0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.drawBuffers([
-		gl.COLOR_ATTACHMENT0,
-		gl.COLOR_ATTACHMENT1
-	]);
-	gl.bindVertexArray(vao['mac_grid_pre']);
+	let grid_to_particle = new ComputeStep(gl, programs['grid_to_particle'], sim, frameBuffer, vao['particle_index'],
+		{ targetTextures: ['particleVelocitiesCopy'], targetDimensions: particleDim});
 
-	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
+	let advection = new ComputeStep(gl, programs['advection'], sim, frameBuffer, vao['particle_index'],
+		{ targetTextures: ['particlePositionsCopy'], targetDimensions: particleDim});
 
-	gl.uniform1i(locations['PARTICLE_POSITION'], 0);
-	gl.uniform1i(locations['PARTICLE_VELOCITY'], 1);
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
-	gl.activeTexture(gl.TEXTURE1);
-	gl.bindTexture(gl.TEXTURE_2D, sim.particleVelocities);
+	let display = new ComputeStep(gl, programs['copy'], sim, null, vao['square_vertices'],
+		{ targetTextures: [], targetDimensions: [1000,1000]});
 
-	gl.drawArraysInstanced(gl.POINTS, 0, sim.NUM_PARTICLES, stage_to_mac_grid.data_displacement(sim).length/3);
+	function step() {
 
-	// Clearing framebuffer attachments to prevent issues downstream
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, null);
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT1, null);
+		/*
+			Stage 1: Label cells as fluid or air
+		*/
 
-	// Step 2 Compute trilinear interpolation to grid by dividing weighted velocity by weight sum
-	program = programs['to_mac_grid'];
+		label
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArrays(gl.POINTS, sim.NUM_PARTICLES);
 
-	gl.viewport(0, 0, gridTextureSize, gridTextureSize);
+		/*
+			Stage 2: Transfer particle velocities to staggered grid 
+		*/
+		// Step 1 Compute velocity and weight contributions to grid for each particle
 
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocity);
+		to_mac_grid_pre
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArraysInstanced(gl.POINTS, sim.NUM_PARTICLES, stage_to_mac_grid.data_displacement(sim).length/3);
 
-	gl.clearColor(0,0,0,0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['square_vertices']);
+		// Step 2 Compute trilinear interpolation to grid by dividing weighted velocity by weight sum
 
-	gl.uniform1i(locations['VELOCITY_PART'], 0);
-	gl.uniform1i(locations['DIVISOR_PART'], 1);
+		to_mac_grid
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArrays(gl.TRIANGLE_STRIP, 4);
 
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocitySum);
-	gl.activeTexture(gl.TEXTURE1);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityWeight);
+		/*
+			Stage 3: Add forces by euler integration
+		*/
 
-	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-	/*
-		Stage 3: Add forces by euler integration
-	*/
-	program = programs['add_force'];
+		add_force
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArrays(gl.TRIANGLE_STRIP, 4);
 
-	gl.viewport(0, 0, gridTextureSize, gridTextureSize);
+		/*
+			Stage 4: Enforce boundary conditions
+		*/
 
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocityForces);
+		enforce_boundary
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArrays(gl.TRIANGLE_STRIP, 4);
 
-	gl.clearColor(0,0,0,0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['square_vertices']);
 
-	gl.uniform3f(locations['FORCE'], 0.0, 0.0, -10.0);
-	gl.uniform1f(locations['DT'], dt);
+		/*
+			Stage 5: Computing divergence of velocity grid
+		*/
 
-	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		divergence
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArrays(gl.TRIANGLE_STRIP, 4);
 
-	/*
-		Stage 4: Enforce boundary conditions
-	*/
-	gl.viewport(0, 0, gridTextureSize, gridTextureSize);
+		/*
+			Stage 6: Computing pressure field via Jacobi iterative method for a relatively sparse system
+		*/
 
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocityBoundary);
+		pressure_iteration
+			.setViewport()
+			.setupProgram()
+			.setUniforms();
 
-	program = programs['enforce_boundary'];
+		let texUnit = pressure_iteration.uniforms.find(u => u.value === 'u_pressure').textureUnit;
 
-	gl.clearColor(0, 0, 0, 0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['square_vertices']);
+		for(let iter = 0; iter < 15; iter++) {
+			// Binding updated pressure
+			gl.activeTexture(texUnit);
+			gl.bindTexture(gl.TEXTURE_2D, sim.gridPressure);
 
-	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
+			pressure_iteration
+				.setTargetTextures()
+				.clearTargets()
+				.drawArrays(gl.TRIANGLE_STRIP, 4);
 
-	gl.uniform1i(locations['GENERIC_TEXTURE'], 0);
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityForces);
-	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+			swapTextures(sim, 'gridPressure', 'gridPressureCopy');
+		}
 
-	/*
-		Stage 5: Computing divergence of velocity grid
-	*/
-	gl.viewport(0, 0, textureSize, textureSize);
+		/*
+			Stage 7: Subtracting psuedo pressure gradient from velocity field
+		*/
 
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridDivergence);
+		subtract_gradient
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
-	program = programs['divergence'];
+		/*
+			Stage 8: Interpolating new particle velocities TODO PIC/FLIP
+		*/
 
-	gl.clearColor(0, 0, 0, 0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['square_vertices']);
+		grid_to_particle
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArrays(gl.POINTS, sim.NUM_PARTICLES);
 
-	gl.uniform3i(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
-	gl.uniform1f(locations['TEXTURE_SIZE'], textureSize);
+		swapTextures(sim, 'particleVelocities', 'particleVelocitiesCopy');
 
-	gl.uniform1i(locations['VELOCITY_TEXTURE'], 0);
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityBoundary);
-	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+		/*
+			Stage 9: Advect particles
+		*/
 
-	/*
-		Stage 6: Computing pressure field via Jacobi iterative method for a relatively sparse system
-	*/
-	gl.viewport(0, 0, textureSize, textureSize);
+		advection
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArrays(gl.POINTS, sim.NUM_PARTICLES);
+		
+		swapTextures(sim, 'particlePositions', 'particlePositionsCopy');
 
-	program = programs['pressure_iteration'];
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['square_vertices']);
+		/*
+			Render result to canvas
+		*/
+		util.resizeToDisplay(gl.canvas);
+		display.targetDimensions = [gl.canvas.width, gl.canvas.height];
+		display
+			.setViewport()
+			.setTargetTextures()
+			.clearTargets()
+			.setupProgram()
+			.setUniforms()
+			.drawArrays(gl.TRIANGLE_STRIP, 4);
 
-	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
-	gl.uniform1f(locations['TEXTURE_SIZE'], textureSize);
-
-	gl.uniform1i(locations['PRESSURE_TEXTURE'], 0);
-
-	gl.uniform1i(locations['LABEL_TEXTURE'], 1);
-	gl.activeTexture(gl.TEXTURE1);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridLabels);
-	gl.uniform1i(locations['DIVERGENCE_TEXTURE'], 2);
-	gl.activeTexture(gl.TEXTURE2);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridDivergence);
-
-	for(let iteration = 0; iteration < 15; iteration++) {
-		util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridPressureCopy);
-		// Is the clear not needed because of alpha?
-		gl.clearColor(0, 0, 0, 0);
-		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-		gl.activeTexture(gl.TEXTURE0);
-		gl.bindTexture(gl.TEXTURE_2D, sim.gridPressure);
-		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-		swapTextures(sim, 'gridPressure', 'gridPressureCopy');
+		//canvasShowParticles(gl, programs, vao, locations, sim);
 	}
 
-	/*
-		Stage 7: Subtracting psuedo pressure gradient from velocity field
-	*/
-	gl.viewport(0, 0, gridTextureSize, gridTextureSize);
-
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.gridVelocityUpdated);
-
-	program = programs['subtract_pressure_gradient'];
-
-	gl.clearColor(0, 0, 0, 0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['square_vertices']);
-
-	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
-	gl.uniform1f(locations['TEXTURE_SIZE'], textureSize);
-	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1f(locations['DT'], dt);
-
-	gl.uniform1i(locations['VELOCITY_TEXTURE'], 0);
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityBoundary);
-	gl.uniform1i(locations['PRESSURE_TEXTURE'], 1);
-	gl.activeTexture(gl.TEXTURE1);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridPressure);
-
-	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-
-	/*
-		Stage 8: Interpolating new particle velocities TODO PIC/FLIP
-	*/
-	gl.viewport(0, 0, sim.NUM_PARTICLES, 1);
-
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.particleVelocitiesCopy);
-
-	program = programs['grid_to_particle'];
-
-	gl.clearColor(0, 0, 0, 0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['particle_index']);
-
-	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
-	gl.uniform1f(locations['NO_PARTICLES'], sim.NUM_PARTICLES);
-
-	gl.uniform1i(locations['VELOCITY_TEXTURE'], 0);
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocityUpdated);
-	gl.uniform1i(locations['PARTICLE_POSITION'], 1);
-	gl.activeTexture(gl.TEXTURE1);
-	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
-
-	gl.drawArrays(gl.POINTS, 0, sim.NUM_PARTICLES);
-	
-	swapTextures(sim, 'particleVelocities', 'particleVelocitiesCopy');
-
-	/*
-		Stage 9: Advect particles
-	*/
-	gl.viewport(0, 0, sim.NUM_PARTICLES, 1);
-
-	util.framebufferTexture2D(gl, gl.COLOR_ATTACHMENT0, sim.particlePositionsCopy);
-
-	program = programs['advection'];
-
-	gl.clearColor(0, 0, 0, 0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['particle_index']);
-
-	gl.uniform3f(locations['GRID_SIZE'], sim.GRID_X_SIZE, sim.GRID_Y_SIZE, sim.GRID_Z_SIZE);
-	gl.uniform3f(locations['GRID_STEP_SIZE'], sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP);
-	gl.uniform1f(locations['GRID_TEXTURE_SIZE'], gridTextureSize);
-	gl.uniform1f(locations['DT'], dt);
-	gl.uniform1i(locations['NO_PARTICLES'], sim.NUM_PARTICLES);
-
-	gl.uniform1i(locations['VELOCITY_TEXTURE'], 0);
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.gridVelocity);
-	gl.uniform1i(locations['PARTICLE_POSITION'], 1);
-	gl.activeTexture(gl.TEXTURE1);
-	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
-	gl.uniform1i(locations['PARTICLE_VELOCITY'], 2);
-	gl.activeTexture(gl.TEXTURE2);
-	gl.bindTexture(gl.TEXTURE_2D, sim.particleVelocities);
-	
-	gl.drawArrays(gl.POINTS, 0, sim.NUM_PARTICLES);
-	
-	swapTextures(sim, 'particlePositions', 'particlePositionsCopy');
-
-	/*
-		Render result to canvas
-	*/
-	//canvasShowTexture(gl, programs, vao, locations, sim.gridPressure);
-	canvasShowParticles(gl, programs, vao, locations, sim);
-
 	let rate = 0.05;
-	setTimeout(() => runSimulation(canvas, gl, programs, vao, sim, locations, rate), 10000*rate);
+	setTimeout(step, 10000*rate);
 
 	//requestAnimationFrame(() => runSimulation(canvas, gl, programs, vao, sim, locations, dt));
-}
-
-function canvasShowTexture(gl, programs, vao, locations, texture) {
-	util.resizeToDisplay(gl.canvas);
-
-	let program = programs['copy'];
-	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-	gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-
-	gl.clearColor(0, 0, 0, 0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['square_vertices']);
-
-	gl.uniform1i(locations['GENERIC_TEXTURE'], 0);
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, texture);
-
-	gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 }
 
 function canvasShowParticles(gl, programs, vao, locations, sim) {

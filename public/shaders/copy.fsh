@@ -2,13 +2,13 @@
 
 precision highp float;
 
-layout(location = $GENERIC_TEXTURE) uniform sampler2D u_texture;
+uniform sampler2D u_velocity;
 
 in vec2 v_texture_coord;
 
 out vec4 outColor;
  
 void main() {
-	outColor = vec4(texture(u_texture, v_texture_coord).rgb,1);
+	outColor = vec4(texture(u_velocity, v_texture_coord).rgb,1);
 	//outColor = vec4(v_texture_coord.x,v_texture_coord.y,v_texture_coord.y*v_texture_coord.y,1);
 }

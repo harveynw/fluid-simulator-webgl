@@ -2,7 +2,7 @@
 
 in int a_particle_index;
 
-layout(location = $NO_PARTICLES) uniform float u_no_particles;
+uniform float u_no_particles;
  
 out float v_particle_index;
  

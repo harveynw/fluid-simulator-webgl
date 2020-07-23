@@ -75,9 +75,9 @@ export function resizeToDisplay(canvas) {
 	}
 }
 
-export async function getPrograms(gl, locations, ...programNames) {
+export async function getPrograms(gl, ...programNames) {
 	let programs = {};
-	let sources = await getShaderSources(programNames, locations);
+	let sources = await getShaderSources(programNames);
 	Object.keys(sources).forEach(name => {
 		let src = sources[name];
 		let vertexShaderSource = src[0];
@@ -119,43 +119,25 @@ function createProgram(gl, vertexShader, fragmentShader) {
 	gl.deleteProgram(program);
 }
 
-async function getShaderSources(shaderNames, locations) {
+async function getShaderSources(shaderNames) {
 	const util = await fetch('/shaders/utilities.c').then(body => body.text());
 
 	let shaderSources = {};
 	let promises = shaderNames.map(shader => {
 		let vertexShaderPromise = fetch('/shaders/' + shader + '.vsh').then(body => {
-			return body.text().then(text => {
-				text = substituteLocations(text, locations);
-				text = text.replace("@import-util;", util);
-				console.log(text);
-				return text;
-			});
+			return body.text().then(text => text.replace("@import-util;", util));
 		});
 		let fragmentShaderPromise = fetch('/shaders/' + shader + '.fsh').then(body => {
-			return body.text().then(text => {
-				text = substituteLocations(text, locations);
-				text = text.replace("@import-util;", util);
-				console.log(text);
-				return text;
-			});
+			return body.text().then(text => text = text.replace("@import-util;", util));
 		});
 		return Promise.all([vertexShaderPromise, fragmentShaderPromise]);
 	});
 
 	const sources = await Promise.all(promises);
 	console.log("Sources:");
-	//console.log(sources);
 	sources.forEach((fetched, index) => {
 		shaderSources[shaderNames[index]] = fetched;
 	});
 	console.log(shaderSources);
 	return shaderSources;
-}
-
-function substituteLocations(src, locations) {
-	Object.keys(locations).forEach(name => {
-		src = src.replace("$" + name, locations[name]);
-	});
-	return src;
 }

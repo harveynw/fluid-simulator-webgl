@@ -2,13 +2,13 @@
 
 precision highp float;
 
-layout(location = $VELOCITY_TEXTURE) uniform sampler2D u_velocity;
-layout(location = $LABEL_TEXTURE) uniform sampler2D u_label;
+uniform sampler2D u_velocity_boundary;
+uniform sampler2D u_label;
 
-layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
-layout(location = $GRID_STEP_SIZE) uniform vec3 u_gridStepSize;
-layout(location = $TEXTURE_SIZE) uniform float u_textureSize;
-layout(location = $GRID_TEXTURE_SIZE) uniform float u_gridTextureSize;
+uniform vec3 u_gridSize;
+uniform vec3 u_gridStepSize;
+uniform float u_textureSize;
+uniform float u_gridTextureSize;
 
 in vec2 v_texture_coord;
 
@@ -18,7 +18,7 @@ out vec4 outColor;
 
 vec3 fetchVelocity(vec3 position) {
 	vec2 textureCoords = positionToTexturePadded(position, u_gridSize, u_gridTextureSize);
-	return(texture(u_velocity, textureCoords).xyz);
+	return(texture(u_velocity_boundary, textureCoords).xyz);
 }
  
 void main() {
@@ -28,9 +28,9 @@ void main() {
 
 	vec3 velocityIn = fetchVelocity(position);
 
-	float xOut = getVelocityAtCell(position + u_gridStepSize*vec3(1,0,0)).x;
-	float yOut = getVelocityAtCell(position + u_gridStepSize*vec3(0,1,0)).y;
-	float zOut = getVelocityAtCell(position + u_gridStepSize*vec3(0,0,1)).z;
+	float xOut = fetchVelocity(position + u_gridStepSize*vec3(1,0,0)).x;
+	float yOut = fetchVelocity(position + u_gridStepSize*vec3(0,1,0)).y;
+	float zOut = fetchVelocity(position + u_gridStepSize*vec3(0,0,1)).z;
 	vec3 velocityOut = vec3(xOut, yOut, zOut);
 
 	outColor = vec4(dot(velocityOut - velocityIn, vec3(1,1,1)), 0, 0, 1);

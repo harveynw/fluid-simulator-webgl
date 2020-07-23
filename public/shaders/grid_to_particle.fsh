@@ -2,12 +2,12 @@
 
 precision highp float;
 
-layout(location = $VELOCITY_TEXTURE) uniform sampler2D u_velocity;
-layout(location = $PARTICLE_POSITION) uniform sampler2D u_particle_position;
+uniform sampler2D u_velocity_updated;
+uniform sampler2D u_particle_position;
 
-layout(location = $GRID_SIZE) uniform vec3 u_gridSize;
-layout(location = $GRID_STEP_SIZE) uniform vec3 u_gridStepSize;
-layout(location = $GRID_TEXTURE_SIZE) uniform float u_gridTextureSize;
+uniform vec3 u_gridSize;
+uniform vec3 u_gridStepSize;
+uniform float u_gridTextureSize;
 
 in float v_particle_index;
 
@@ -17,7 +17,7 @@ out vec4 outColor;
 
 vec3 fetchVelocity(vec3 position) {
 	vec2 textureCoords = positionToTexturePadded(position, u_gridSize, u_gridTextureSize);
-	return(texture(u_velocity, textureCoords).xyz);
+	return(texture(u_velocity_updated, textureCoords).xyz);
 }
 
 vec3 interpolateVelocity(vec3 position) {

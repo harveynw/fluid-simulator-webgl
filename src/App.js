@@ -1,5 +1,5 @@
 import React , { Component } from 'react';
-import { initSimulation } from './simulation';
+import { initSimulation } from './Simulation';
 
 import './App.css';
 
