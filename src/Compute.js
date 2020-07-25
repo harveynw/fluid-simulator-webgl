@@ -69,7 +69,7 @@ class ComputeStep {
 		this.vao = vao;
 		this.blendEquation = blendEquation;
 
-		this.targetTextures = targetTextures.map(target => this.sim[target]);
+		this.targetTextures = targetTextures;
 		this.targetDimensions = targetDimensions;
 
 		this.drawAttachments = [];
@@ -84,11 +84,13 @@ class ComputeStep {
 	}
 
 	drawArrays = (mode, passes) => {
+		console.log("Drawing arrays with mode " + mode + " and " + passes + " passes");
 		this.gl.drawArrays(mode, 0, passes);
 		this._clearDrawBuffers();
 	}
 
 	drawArraysInstanced = (mode, passes, instances) => {
+		console.log("Drawing arrays with mode " + mode + " and " + passes + " passes (" + instances + " instances)");
 		this.gl.drawArraysInstanced(mode, 0, passes, instances);
 		this._clearDrawBuffers();
 	}
@@ -110,15 +112,16 @@ class ComputeStep {
 
 			if(gl_uniform.type === gl.SAMPLER_2D) {
 				let gl_textureUnit = gl['TEXTURE' + textureUnit];
+				let currentTextureUnit = textureUnit;
 
 				let setter = (l, v) => {
-					gl.uniform1i(l, textureUnit);
+					gl.uniform1i(l, currentTextureUnit);
 					gl.activeTexture(gl_textureUnit);
 					gl.bindTexture(gl.TEXTURE_2D, this.sim[v]);
 				};
 
 				uniform = {
-					'value': gl_uniform.name,
+					'value': this.uniformTextureMappings[gl_uniform.name],
 					'setter': setter,
 					'textureUnit': gl_textureUnit
 				};
@@ -140,19 +143,24 @@ class ComputeStep {
 	}
 
 	setViewport = () => {
-		this.gl.viewport(0, 0, this.targetDimensions[0], this.targetDimensions[1]);
+		let gl = this.gl;
+
+		gl.viewport(0, 0, this.targetDimensions[0], this.targetDimensions[1]);
 		if(this.blendEquation !== null) {
-			this.gl.blendEquation(this.blendEquation);
+			gl.blendEquation(this.blendEquation);
 		}
+
+		gl.bindFramebuffer(gl.FRAMEBUFFER, this.frameBuffer);
 
 		return this;
 	}
 
 	setTargetTextures = () => {
-		if(this.drawAttachments.length === 0) return;
+		if(this.drawAttachments.length === 0) return this;
 
 		for(const i of this.targetTextures.keys()) {
-			util.framebufferTexture2D(this.gl, this.drawAttachments[i], this.targetTextures[i]);
+			let target = this.sim[this.targetTextures[i]];
+			util.framebufferTexture2D(this.gl, this.drawAttachments[i], target);
 		}
 
 		this.gl.drawBuffers(this.drawAttachments);
@@ -176,6 +184,7 @@ class ComputeStep {
 
 	setUniforms = () => {
 		this.uniforms.forEach(uniform => {
+			//console.log("Setting " + uniform.value + " to " + uniform.location);
 			uniform.setter(uniform.location, uniform.value);
 		});
 		

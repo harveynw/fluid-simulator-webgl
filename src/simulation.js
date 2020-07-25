@@ -7,7 +7,7 @@ import * as stage_label_grid from './stages/label_grid';
 import * as stage_to_mac_grid from './stages/to_mac_grid';
 
 class Simulation {
-	constructor(canvas, gl, particles=100, gridResolution=[20,20,20]) {
+	constructor(canvas, gl, particles=100, gridResolution=[40,40,40]) {
 		this.controller = new Controller(canvas);
 
 		this.NUM_PARTICLES = 1000;
@@ -49,6 +49,10 @@ class Simulation {
 		this.gridVelocityUpdated    = gl.createTexture();
 
 		gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+		this.textureSize = Math.ceil(Math.sqrt(this.GRID_X_SIZE*this.GRID_Y_SIZE*this.GRID_Z_SIZE));
+		this.gridTextureSize = Math.ceil(Math.sqrt((this.GRID_X_SIZE+1)*(this.GRID_Y_SIZE+1)*(this.GRID_Z_SIZE+1)));
+
 	}
 }
 
@@ -249,7 +253,7 @@ function runSimulation(gl, programs, vao, sim) {
 		/*
 			Stage 4: Enforce boundary conditions
 		*/
-
+		
 		enforce_boundary
 			.setViewport()
 			.setTargetTextures()
@@ -257,7 +261,6 @@ function runSimulation(gl, programs, vao, sim) {
 			.setupProgram()
 			.setUniforms()
 			.drawArrays(gl.TRIANGLE_STRIP, 4);
-
 
 		/*
 			Stage 5: Computing divergence of velocity grid
@@ -280,7 +283,7 @@ function runSimulation(gl, programs, vao, sim) {
 			.setupProgram()
 			.setUniforms();
 
-		let texUnit = pressure_iteration.uniforms.find(u => u.value === 'u_pressure').textureUnit;
+		let texUnit = pressure_iteration.uniforms.find(u => u.value === 'gridPressure').textureUnit;
 
 		for(let iter = 0; iter < 15; iter++) {
 			// Binding updated pressure
@@ -305,7 +308,7 @@ function runSimulation(gl, programs, vao, sim) {
 			.clearTargets()
 			.setupProgram()
 			.setUniforms()
-			.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+			.drawArrays(gl.TRIANGLE_STRIP, 4);
 
 		/*
 			Stage 8: Interpolating new particle velocities TODO PIC/FLIP
@@ -338,6 +341,7 @@ function runSimulation(gl, programs, vao, sim) {
 		/*
 			Render result to canvas
 		*/
+
 		util.resizeToDisplay(gl.canvas);
 		display.targetDimensions = [gl.canvas.width, gl.canvas.height];
 		display

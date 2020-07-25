@@ -3,7 +3,7 @@
 precision highp float;
 
 // TODO this should be u_velocity_updated
-uniform sampler2D u_velocity;
+uniform sampler2D u_velocity_updated;
 uniform sampler2D u_particle_position;
 uniform sampler2D u_particle_velocity;
 
@@ -20,7 +20,7 @@ out vec4 outColor;
 
 vec3 fetchVelocity(vec3 position) {
 	vec2 textureCoords = positionToTexturePadded(position, u_gridSize, u_gridTextureSize);
-	return(texture(u_velocity, textureCoords).xyz);
+	return(texture(u_velocity_updated, textureCoords).xyz);
 }
 
 vec3 interpolateVelocity(vec3 position) {
