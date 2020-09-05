@@ -52,6 +52,6 @@ void main() {
 	vec3 boundLower = vec3(small, small, small);
 	vec3 boundUpper = vec3(1.0-small, 1.0-small, 1.0-small);
 
-	outColor = vec4(clamp(newPosition, boundLower, boundUpper), 1);
+	outColor = vec4(clamp(newPosition, vec3(0,0,0), vec3(1,1,1)), 1);
 	//outColor = vec4(velocity*u_dt, 1);
 }

@@ -9,6 +9,8 @@ class Simulation {
 	constructor(canvas, gl, particles=1000, gridResolution=[40,40,40]) {
 		this.controller = new Controller(canvas);
 
+		this.dt = 0.1;
+
 		this.NUM_PARTICLES = particles;
 		this.GRID_SIZE = gridResolution;
 		this.GRID_X_SIZE = gridResolution[0];
@@ -61,7 +63,7 @@ class Simulation {
 		let modelview = mat4.create();
 
 		mat4.perspective(projection, 1, gl.canvas.clientWidth/gl.canvas.clientHeight, 0.05, 1000);
-		mat4.lookAt(modelview, [-1,-1,1], [0.5,0.5,0.5], [0,0,1]);
+		mat4.lookAt(modelview, [-4,-4,1], [0.5,0.5,0.5], [0,0,1]);
 		/* Apply the modeling tranformation to modelview. */
 		let translation = [0, 0, 0];
 		let degToRad = d => d * Math.PI / 180;
@@ -115,7 +117,8 @@ function initSimulation(canvas) {
 		'grid_to_particle',
 		'advection',
 		'copy',
-		'display_particles'
+		'display_particles',
+		'display_boundary'
 	).then(programs => {
 		let sim = new Simulation(canvas, gl);
 
@@ -204,6 +207,9 @@ function runSimulation(gl, programs, sim) {
 		{ targetTextures: [], targetDimensions: [1000,1000]});
 
 	let displayParticles = new ComputeStep(gl, programs['display_particles'], sim , null, vao.PARTICLE_INDEX,
+		{ targetTextures: [], targetDimensions: [1000,1000]});
+
+	let displayBoundary = new ComputeStep(gl, programs['display_boundary'], sim, null, vao.CUBE,
 		{ targetTextures: [], targetDimensions: [1000,1000]});
 
 	function step() {
@@ -372,10 +378,22 @@ function runSimulation(gl, programs, sim) {
 				.setUniforms()
 				.drawArrays(gl.POINTS, sim.NUM_PARTICLES);
 		}
-		
+
+		let showBoundary = true;
+
+		if(showBoundary) {
+			displayBoundary.targetDimensions = [gl.canvas.width, gl.canvas.height];
+			displayBoundary
+				.setViewport()
+				.setTargetTextures()
+				.setupProgram()
+				.setUniforms()
+				.drawArrays(gl.LINES, 12*2); 
+		}
 	}
 
-	let rate = 30;
+	let rate = 5;
+	sim.dt = 1/rate;
 	setInterval(step, 1000/rate);
 
 	//step();

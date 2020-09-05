@@ -25,7 +25,7 @@ class ComputeStep {
 	_setUniformMappings = () => {
 		this.uniformMappings = {
 			'u_dt': {
-				'value': 0.1,
+				'value': this.sim.dt,
 				'setter': (l, v) => this.gl.uniform1f(l, v)
 			},
 			'u_force': {
