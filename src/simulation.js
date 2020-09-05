@@ -1,16 +1,15 @@
 import * as util from './util';
 import { mat4 } from 'gl-matrix';
+
 import Controller from './Controller';
 import ComputeStep from './Compute';
-
-import * as stage_label_grid from './stages/label_grid';
-import * as stage_to_mac_grid from './stages/to_mac_grid';
+import VAO from './VAO';
 
 class Simulation {
-	constructor(canvas, gl, particles=100, gridResolution=[40,40,40]) {
+	constructor(canvas, gl, particles=1000, gridResolution=[40,40,40]) {
 		this.controller = new Controller(canvas);
 
-		this.NUM_PARTICLES = 1000;
+		this.NUM_PARTICLES = particles;
 		this.GRID_SIZE = gridResolution;
 		this.GRID_X_SIZE = gridResolution[0];
 		this.GRID_Y_SIZE = gridResolution[1];
@@ -53,7 +52,32 @@ class Simulation {
 		this.textureSize = Math.ceil(Math.sqrt(this.GRID_X_SIZE*this.GRID_Y_SIZE*this.GRID_Z_SIZE));
 		this.gridTextureSize = Math.ceil(Math.sqrt((this.GRID_X_SIZE+1)*(this.GRID_Y_SIZE+1)*(this.GRID_Z_SIZE+1)));
 
+		this.mvpDisplayMatrix = mat4.create();
+		this.updateMvpMatrix = this.updateMvpMatrix.bind(this);
 	}
+
+	updateMvpMatrix(gl) {
+		let projection = mat4.create();
+		let modelview = mat4.create();
+
+		mat4.perspective(projection, 1, gl.canvas.clientWidth/gl.canvas.clientHeight, 0.05, 1000);
+		mat4.lookAt(modelview, [-1,-1,1], [0.5,0.5,0.5], [0,0,1]);
+		/* Apply the modeling tranformation to modelview. */
+		let translation = [0, 0, 0];
+		let degToRad = d => d * Math.PI / 180;
+		let rotation = this.controller.viewRotation.map(theta => degToRad(theta));
+		let scale = [1, 1, 1];
+		mat4.rotateX(modelview, modelview, rotation[0]);
+		mat4.rotateY(modelview, modelview, rotation[1]);
+		mat4.rotateZ(modelview, modelview, rotation[2]);
+		mat4.scale(modelview, modelview, scale);
+		mat4.translate(modelview, modelview, translation);
+		/* Multiply the projection matrix times the modelview matrix to give the
+		   combined transformation matrix, and send that to the shader program. */
+		 
+		mat4.multiply(this.mvpDisplayMatrix, projection, modelview);
+	}
+	
 }
 
 function initialPositions(sim) {
@@ -61,9 +85,9 @@ function initialPositions(sim) {
 	for(let x = 0; x < 10; x++) {
 		for(let y = 0; y < 10; y++) {
 			for(let z = 0; z < 10; z++) {
-				array.push(x * sim.GRID_X_STEP * 0.1);
-				array.push(y * sim.GRID_Y_STEP * 0.1);
-				array.push(1 - (z*sim.GRID_Z_STEP*0.1));
+				array.push(x * sim.GRID_X_STEP);
+				array.push(y * sim.GRID_Y_STEP);
+				array.push(1 - (z*sim.GRID_Z_STEP));
 				array.push(1);
 			}
 		}
@@ -125,36 +149,12 @@ function initSimulation(canvas) {
 		util.texImage2D(gl, sim.particleVelocitiesCopy, sim.NUM_PARTICLES, 1, null);
 		util.texImage2D(gl, sim.particlePositionsCopy, sim.NUM_PARTICLES, 1, null);
 		
-		/*
-			Setting up VAOs
-		*/
-		const vao = {};
-
-		vao['particle_index'] = gl.createVertexArray();
-		gl.bindVertexArray(vao['particle_index']);
-		// a_particle_index
-		util.bufferDataAttribute(gl, 0, stage_label_grid.data_particleIndices(sim), 1, gl.INT);
-
-		vao['mac_grid_pre'] = gl.createVertexArray();
-		gl.bindVertexArray(vao['mac_grid_pre']);
-		// a_particle_index, a_displacement
-		util.bufferDataAttribute(gl, 0, stage_to_mac_grid.data_particleIndices(sim), 1, gl.INT);
-		util.bufferDataAttribute(gl, 1, stage_to_mac_grid.data_displacement(sim), 3, gl.FLOAT, 1);
-
-		vao['square_vertices'] = gl.createVertexArray();
-		gl.bindVertexArray(vao['square_vertices']);
-		// a_square_vertex
-		util.bufferDataAttribute(gl, 0, new Float32Array([-1.0, -1.0, -1.0, 1.0, 1.0, -1.0, 1.0, 1.0]), 2, gl.FLOAT);
-
-		/*
-			Setting up stages
-		*/
-		runSimulation(gl, programs, vao, sim);
+		runSimulation(gl, programs, sim);
 	});
 }
 
 
-function runSimulation(gl, programs, vao, sim) {
+function runSimulation(gl, programs, sim) {
 	const textureSize = Math.ceil(Math.sqrt(sim.GRID_X_SIZE*sim.GRID_Y_SIZE*sim.GRID_Z_SIZE));
 	const gridTextureSize = Math.ceil(Math.sqrt((sim.GRID_X_SIZE+1)*(sim.GRID_Y_SIZE+1)*(sim.GRID_Z_SIZE+1)));
 
@@ -168,37 +168,42 @@ function runSimulation(gl, programs, vao, sim) {
 	const gridTextureDim = [gridTextureSize, gridTextureSize];
 	const particleDim = [sim.NUM_PARTICLES, 1];
 
-	let label = new ComputeStep(gl, programs['label_grid'], sim, frameBuffer, vao['particle_index'],
+	const vao = new VAO(gl, sim);
+
+	let label = new ComputeStep(gl, programs['label_grid'], sim, frameBuffer, vao.PARTICLE_INDEX,
 		{ targetTextures: ['gridLabels'], targetDimensions: textureDim});
 
-	let to_mac_grid_pre = new ComputeStep(gl, programs['to_mac_grid_pre'], sim, frameBuffer, vao['mac_grid_pre'],
+	let to_mac_grid_pre = new ComputeStep(gl, programs['to_mac_grid_pre'], sim, frameBuffer, vao.MAC_GRID_PRE,
 		{ targetTextures: ['gridVelocitySum', 'gridVelocityWeight'], targetDimensions: gridTextureDim}, gl.FUNC_ADD);
 
-	let to_mac_grid = new ComputeStep(gl, programs['to_mac_grid'], sim, frameBuffer, vao['square_vertices'],
+	let to_mac_grid = new ComputeStep(gl, programs['to_mac_grid'], sim, frameBuffer, vao.SQUARE_VERTICES,
 		{ targetTextures: ['gridVelocity'], targetDimensions: gridTextureDim});
 
-	let add_force = new ComputeStep(gl, programs['add_force'], sim, frameBuffer, vao['square_vertices'],
+	let add_force = new ComputeStep(gl, programs['add_force'], sim, frameBuffer, vao.SQUARE_VERTICES,
 		{ targetTextures: ['gridVelocityForces'], targetDimensions: gridTextureDim});
 
-	let enforce_boundary = new ComputeStep(gl, programs['enforce_boundary'], sim, frameBuffer, vao['square_vertices'],
+	let enforce_boundary = new ComputeStep(gl, programs['enforce_boundary'], sim, frameBuffer, vao.SQUARE_VERTICES,
 		{ targetTextures: ['gridVelocityBoundary'], targetDimensions: gridTextureDim});
 
-	let divergence = new ComputeStep(gl, programs['divergence'], sim, frameBuffer, vao['square_vertices'],
+	let divergence = new ComputeStep(gl, programs['divergence'], sim, frameBuffer, vao.SQUARE_VERTICES,
 		{ targetTextures: ['gridDivergence'], targetDimensions: textureDim});
 
-	let pressure_iteration = new ComputeStep(gl, programs['pressure_iteration'], sim, frameBuffer, vao['square_vertices'],
+	let pressure_iteration = new ComputeStep(gl, programs['pressure_iteration'], sim, frameBuffer, vao.SQUARE_VERTICES,
 		{ targetTextures: ['gridPressureCopy'], targetDimensions: textureDim});
 
-	let subtract_gradient = new ComputeStep(gl, programs['subtract_pressure_gradient'], sim, frameBuffer, vao['square_vertices'],
+	let subtract_gradient = new ComputeStep(gl, programs['subtract_pressure_gradient'], sim, frameBuffer, vao.SQUARE_VERTICES,
 		{ targetTextures: ['gridVelocityUpdated'], targetDimensions: gridTextureDim});
 
-	let grid_to_particle = new ComputeStep(gl, programs['grid_to_particle'], sim, frameBuffer, vao['particle_index'],
+	let grid_to_particle = new ComputeStep(gl, programs['grid_to_particle'], sim, frameBuffer, vao.PARTICLE_INDEX,
 		{ targetTextures: ['particleVelocitiesCopy'], targetDimensions: particleDim});
 
-	let advection = new ComputeStep(gl, programs['advection'], sim, frameBuffer, vao['particle_index'],
+	let advection = new ComputeStep(gl, programs['advection'], sim, frameBuffer, vao.PARTICLE_INDEX,
 		{ targetTextures: ['particlePositionsCopy'], targetDimensions: particleDim});
 
-	let display = new ComputeStep(gl, programs['copy'], sim, null, vao['square_vertices'],
+	let display = new ComputeStep(gl, programs['copy'], sim, null, vao.SQUARE_VERTICES,
+		{ targetTextures: [], targetDimensions: [1000,1000]});
+
+	let displayParticles = new ComputeStep(gl, programs['display_particles'], sim , null, vao.PARTICLE_INDEX,
 		{ targetTextures: [], targetDimensions: [1000,1000]});
 
 	function step() {
@@ -226,7 +231,7 @@ function runSimulation(gl, programs, vao, sim) {
 			.clearTargets()
 			.setupProgram()
 			.setUniforms()
-			.drawArraysInstanced(gl.POINTS, sim.NUM_PARTICLES, stage_to_mac_grid.data_displacement(sim).length/3);
+			.drawArraysInstanced(gl.POINTS, sim.NUM_PARTICLES, 5*5*5);
 
 		// Step 2 Compute trilinear interpolation to grid by dividing weighted velocity by weight sum
 
@@ -285,7 +290,7 @@ function runSimulation(gl, programs, vao, sim) {
 
 		let texUnit = pressure_iteration.uniforms.find(u => u.value === 'gridPressure').textureUnit;
 
-		for(let iter = 0; iter < 15; iter++) {
+		for(let iter = 0; iter < 30; iter++) {
 			// Binding updated pressure
 			gl.activeTexture(texUnit);
 			gl.bindTexture(gl.TEXTURE_2D, sim.gridPressure);
@@ -343,66 +348,38 @@ function runSimulation(gl, programs, vao, sim) {
 		*/
 
 		util.resizeToDisplay(gl.canvas);
-		display.targetDimensions = [gl.canvas.width, gl.canvas.height];
-		display
-			.setViewport()
-			.setTargetTextures()
-			.clearTargets()
-			.setupProgram()
-			.setUniforms()
-			.drawArrays(gl.TRIANGLE_STRIP, 4);
 
-		//canvasShowParticles(gl, programs, vao, locations, sim);
+		let debug = false;
+
+		if(debug) {
+			display.targetDimensions = [gl.canvas.width, gl.canvas.height];
+			display
+				.setViewport()
+				.setTargetTextures()
+				.clearTargets()
+				.setupProgram()
+				.setUniforms()
+				.drawArrays(gl.TRIANGLE_STRIP, 4);
+		} else {
+			sim.updateMvpMatrix(gl);
+
+			displayParticles.targetDimensions = [gl.canvas.width, gl.canvas.height];
+			displayParticles
+				.setViewport()
+				.setTargetTextures()
+				.clearTargets()
+				.setupProgram()
+				.setUniforms()
+				.drawArrays(gl.POINTS, sim.NUM_PARTICLES);
+		}
+		
 	}
 
-	let rate = 0.05;
-	setTimeout(step, 10000*rate);
+	let rate = 30;
+	setInterval(step, 1000/rate);
 
+	//step();
 	//requestAnimationFrame(() => runSimulation(canvas, gl, programs, vao, sim, locations, dt));
-}
-
-function canvasShowParticles(gl, programs, vao, locations, sim) {
-	util.resizeToDisplay(gl.canvas);
-
-	let program = programs['display_particles'];
-	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-	gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
-
-	gl.clearColor(0, 0, 0, 0);
-	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-	gl.useProgram(program);
-	gl.bindVertexArray(vao['particle_index']);
-
-	gl.uniformMatrix4fv(locations['MVP_MATRIX'], false, getModelViewProjectionMatrix(gl, sim.controller));
-
-	gl.uniform1i(locations['PARTICLE_POSITION'], 0);
-	gl.activeTexture(gl.TEXTURE0);
-	gl.bindTexture(gl.TEXTURE_2D, sim.particlePositions);
-
-	gl.drawArrays(gl.POINTS, 0, sim.NUM_PARTICLES);
-}
-
-function getModelViewProjectionMatrix(gl, controller) {
-	let projection = mat4.create();
-    let modelview = mat4.create();
-    let modelviewProjection = mat4.create();
-    mat4.perspective(projection, 1, gl.canvas.clientWidth/gl.canvas.clientHeight, 0.05, 1000);
-    mat4.lookAt(modelview, [-1,-1,1], [0.5,0.5,0.5], [0,0,1]);
-    /* Apply the modeling tranformation to modelview. */
-    let translation = [0, 0, 0];
-    let degToRad = d => d * Math.PI / 180;
-    let rotation = controller.viewRotation.map(theta => degToRad(theta));
-    let scale = [1, 1, 1];
-    mat4.rotateX(modelview, modelview, rotation[0]);
-    mat4.rotateY(modelview, modelview, rotation[1]);
-    mat4.rotateZ(modelview, modelview, rotation[2]);
-    mat4.scale(modelview, modelview, scale);
-    mat4.translate(modelview, modelview, translation);
-    /* Multiply the projection matrix times the modelview matrix to give the
-       combined transformation matrix, and send that to the shader program. */
-     
-    mat4.multiply(modelviewProjection, projection, modelview);
-   	return(modelviewProjection);
 }
 
 function swapTextures(sim, texture1Key, texture2Key) {

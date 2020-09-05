@@ -52,8 +52,8 @@ class ComputeStep {
 				'value': this.sim.NUM_PARTICLES,
 				'setter': (l, v) => this.gl.uniform1f(l, v)
 			},
-			'u_matrix': {
-				'value': null,
+			'u_mvp_matrix': {
+				'value': this.sim.mvpDisplayMatrix,
 				'setter': (l,v) => this.gl.uniformMatrix4fv(l, false, v),
 			}
 		};
@@ -84,13 +84,13 @@ class ComputeStep {
 	}
 
 	drawArrays = (mode, passes) => {
-		console.log("Drawing arrays with mode " + mode + " and " + passes + " passes");
+		//console.log("Drawing arrays with mode " + mode + " and " + passes + " passes");
 		this.gl.drawArrays(mode, 0, passes);
 		this._clearDrawBuffers();
 	}
 
 	drawArraysInstanced = (mode, passes, instances) => {
-		console.log("Drawing arrays with mode " + mode + " and " + passes + " passes (" + instances + " instances)");
+		//console.log("Drawing arrays with mode " + mode + " and " + passes + " passes (" + instances + " instances)");
 		this.gl.drawArraysInstanced(mode, 0, passes, instances);
 		this._clearDrawBuffers();
 	}
