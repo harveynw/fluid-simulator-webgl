@@ -63,12 +63,12 @@ class Simulation {
 		let modelview = mat4.create();
 
 		mat4.perspective(projection, 1, gl.canvas.clientWidth/gl.canvas.clientHeight, 0.05, 1000);
-		mat4.lookAt(modelview, [-4,-4,1], [0.5,0.5,0.5], [0,0,1]);
+		mat4.lookAt(modelview, [-4,-4,-1], [0.5,0.5,0], [0,0,1]);
 		/* Apply the modeling tranformation to modelview. */
 		let translation = [0, 0, 0];
 		let degToRad = d => d * Math.PI / 180;
 		let rotation = this.controller.viewRotation.map(theta => degToRad(theta));
-		let scale = [1, 1, 1];
+		let scale = [this.controller.zoom, this.controller.zoom, this.controller.zoom];
 		mat4.rotateX(modelview, modelview, rotation[0]);
 		mat4.rotateY(modelview, modelview, rotation[1]);
 		mat4.rotateZ(modelview, modelview, rotation[2]);
@@ -87,9 +87,9 @@ function initialPositions(sim) {
 	for(let x = 0; x < 10; x++) {
 		for(let y = 0; y < 10; y++) {
 			for(let z = 0; z < 10; z++) {
-				array.push(x * sim.GRID_X_STEP);
-				array.push(y * sim.GRID_Y_STEP);
-				array.push(1 - (z*sim.GRID_Z_STEP));
+				array.push(0.5 + x * sim.GRID_X_STEP * 1/10);
+				array.push(0.5 + y * sim.GRID_Y_STEP * 1/10);
+				array.push(1 - (z*sim.GRID_Z_STEP * 1/10) - 0.5);
 				array.push(1);
 			}
 		}
@@ -128,8 +128,8 @@ function initSimulation(canvas) {
 		let posData = initialPositions(sim);
 		//let posData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => Math.random()));
 
-		//let velData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill(0));
-		let velData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => (Math.random()*2.0)-1.0));
+		let velData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill(0));
+		//let velData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => (Math.random()*10.0)-1.0));
 
 		/*
 			Setting up textures
@@ -377,22 +377,23 @@ function runSimulation(gl, programs, sim) {
 				.setupProgram()
 				.setUniforms()
 				.drawArrays(gl.POINTS, sim.NUM_PARTICLES);
+
+			let showBoundary = true;
+
+			if(showBoundary) {
+				displayBoundary.targetDimensions = [gl.canvas.width, gl.canvas.height];
+				displayBoundary
+					.setViewport()
+					.setTargetTextures()
+					.setupProgram()
+					.setUniforms()
+					.drawArrays(gl.LINES, 12*2); 
+			}
 		}
 
-		let showBoundary = true;
-
-		if(showBoundary) {
-			displayBoundary.targetDimensions = [gl.canvas.width, gl.canvas.height];
-			displayBoundary
-				.setViewport()
-				.setTargetTextures()
-				.setupProgram()
-				.setUniforms()
-				.drawArrays(gl.LINES, 12*2); 
-		}
 	}
 
-	let rate = 5;
+	let rate = 30;
 	sim.dt = 1/rate;
 	setInterval(step, 1000/rate);
 

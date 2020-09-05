@@ -19,13 +19,13 @@ void main() {
 
 	// Correct velocity if boundary cell
 	if(position.x < u_gridStepSize.x || position.x > 0.99999) {
-		velocity = vec3(100000, velocity.y, velocity.z);
+		velocity = vec3(0, velocity.y, velocity.z);
 	}
 	if(position.y < u_gridStepSize.y || position.y > 0.99999) {
-		velocity = vec3(velocity.x, 100000, velocity.z);
+		velocity = vec3(velocity.x, 0, velocity.z);
 	}
 	if(position.z < u_gridStepSize.z|| position.z > 0.99999) {
-		velocity = vec3(velocity.x, velocity.y, 100000);
+		velocity = vec3(velocity.x, velocity.y, 0);
 	}
 
 	outColor = vec4(velocity,1);
