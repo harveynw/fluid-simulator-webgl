@@ -11,6 +11,8 @@ class Simulation {
 
 		this.dt = 0.1;
 
+		this.gravity = [1, 0, -1];
+
 		this.NUM_PARTICLES = particles;
 		this.GRID_SIZE = gridResolution;
 		this.GRID_X_SIZE = gridResolution[0];
@@ -83,16 +85,30 @@ class Simulation {
 }
 
 function initialPositions(sim) {
+	let translate = [0, 0, 0];
+	let scale = [sim.GRID_X_STEP, sim.GRID_Y_STEP, sim.GRID_Z_STEP];
+	scale = scale.map(sigma => sigma*10);
+
 	let array = [];
-	for(let x = 0; x < 10; x++) {
-		for(let y = 0; y < 10; y++) {
-			for(let z = 0; z < 10; z++) {
-				array.push(0.5 + x * sim.GRID_X_STEP * 1/10);
-				array.push(0.5 + y * sim.GRID_Y_STEP * 1/10);
-				array.push(1 - (z*sim.GRID_Z_STEP * 1/10) - 0.5);
-				array.push(1);
-			}
-		}
+	for(let i = 0; i < sim.NUM_PARTICLES; i++) {
+		array.push(translate[0] + Math.random() * scale[0]);
+		array.push(translate[1] + Math.random() * scale[1]);
+		array.push(translate[2] + Math.random() * scale[2]);
+		array.push(1);
+	}
+
+	return(Float32Array.from(array));
+}
+
+function initialVelocities(sim) {
+	let scale = [1,1,1];
+
+	let array = [];
+	for(let i = 0; i < sim.NUM_PARTICLES; i++) {
+		array.push(scale[0] * (Math.random()*2.0 - 1.0));
+		array.push(scale[1] * (Math.random()*2.0 - 1.0));
+		array.push(scale[2] * (Math.random()*2.0 - 1.0));
+		array.push(1);
 	}
 	return(Float32Array.from(array));
 }
@@ -126,10 +142,7 @@ function initSimulation(canvas) {
    			Setting up initial position and velocity textures
 		*/
 		let posData = initialPositions(sim);
-		//let posData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => Math.random()));
-
-		let velData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill(0));
-		//let velData = Float32Array.from(Array(4*sim.NUM_PARTICLES).fill().map(() => (Math.random()*10.0)-1.0));
+		let velData = initialVelocities(sim);
 
 		/*
 			Setting up textures
@@ -156,6 +169,9 @@ function initSimulation(canvas) {
 	});
 }
 
+function timestamp() {
+	return window.performance && window.performance.now ? window.performance.now() : new Date().getTime();
+}
 
 function runSimulation(gl, programs, sim) {
 	const textureSize = Math.ceil(Math.sqrt(sim.GRID_X_SIZE*sim.GRID_Y_SIZE*sim.GRID_Z_SIZE));
@@ -212,7 +228,11 @@ function runSimulation(gl, programs, sim) {
 	let displayBoundary = new ComputeStep(gl, programs['display_boundary'], sim, null, vao.CUBE,
 		{ targetTextures: [], targetDimensions: [1000,1000]});
 
-	function step() {
+	let last = timestamp();
+	
+	function step(now) {
+		sim.dt = Math.min((now - last) * 1/1000, 1);
+		last = now;
 
 		/*
 			Stage 1: Label cells as fluid or air
@@ -391,14 +411,10 @@ function runSimulation(gl, programs, sim) {
 			}
 		}
 
+		requestAnimationFrame(step);
 	}
 
-	let rate = 30;
-	sim.dt = 1/rate;
-	setInterval(step, 1000/rate);
-
-	//step();
-	//requestAnimationFrame(() => runSimulation(canvas, gl, programs, vao, sim, locations, dt));
+	requestAnimationFrame(step);
 }
 
 function swapTextures(sim, texture1Key, texture2Key) {

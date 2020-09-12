@@ -2,12 +2,12 @@
 
 precision highp float;
 
-uniform sampler2D u_particle_velocity;
+uniform sampler2D u_velocity_updated;
 
 in vec2 v_texture_coord;
 
 out vec4 outColor;
  
 void main() {
-	outColor = vec4(texture(u_particle_velocity, v_texture_coord).rgb,1);
+	outColor = vec4(texture(u_velocity_updated, v_texture_coord).rgb,1);
 }

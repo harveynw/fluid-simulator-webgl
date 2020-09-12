@@ -17,14 +17,15 @@ void main() {
 	vec3 velocity = texture(u_velocity_forces, v_texture_coord).xyz;
 	vec3 position = textureToPositionPadded(v_texture_coord, u_gridSize, u_gridTextureSize);
 
+	float tol = 0.000000001;
 	// Correct velocity if boundary cell
-	if(position.x < u_gridStepSize.x || position.x > 0.99999) {
+	if(position.x < tol || position.x > 1.0-tol) {
 		velocity = vec3(0, velocity.y, velocity.z);
 	}
-	if(position.y < u_gridStepSize.y || position.y > 0.99999) {
+	if(position.y < tol || position.y > 1.0-tol) {
 		velocity = vec3(velocity.x, 0, velocity.z);
 	}
-	if(position.z < u_gridStepSize.z|| position.z > 0.99999) {
+	if(position.z < tol || position.z > 1.0-tol) {
 		velocity = vec3(velocity.x, velocity.y, 0);
 	}
 

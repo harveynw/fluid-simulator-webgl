@@ -29,7 +29,7 @@ class ComputeStep {
 				'setter': (l, v) => this.gl.uniform1f(l, v)
 			},
 			'u_force': {
-				'value': [0,0,-10],
+				'value': this.sim.gravity,
 				'setter': (l, v) => this.gl.uniform3f(l, v[0], v[1], v[2])
 			},
 			'u_gridSize': {
