@@ -11,7 +11,7 @@ class Simulation {
 
 		this.dt = 0.1;
 
-		this.gravity = [1, 0, -1];
+		this.gravity = [0, 0, 0];
 
 		this.NUM_PARTICLES = particles;
 		this.GRID_SIZE = gridResolution;
@@ -101,13 +101,13 @@ function initialPositions(sim) {
 }
 
 function initialVelocities(sim) {
-	let scale = [1,1,1];
+	let scale = 1;
 
 	let array = [];
 	for(let i = 0; i < sim.NUM_PARTICLES; i++) {
-		array.push(scale[0] * (Math.random()*2.0 - 1.0));
-		array.push(scale[1] * (Math.random()*2.0 - 1.0));
-		array.push(scale[2] * (Math.random()*2.0 - 1.0));
+		array.push(scale * (Math.random()*2.0 - 1.0));
+		array.push(scale * (Math.random()*2.0 - 1.0));
+		array.push(scale * (Math.random()*2.0 - 1.0));
 		array.push(1);
 	}
 	return(Float32Array.from(array));
@@ -376,6 +376,7 @@ function runSimulation(gl, programs, sim) {
 		util.resizeToDisplay(gl.canvas);
 
 		let debug = false;
+		let loop = true;
 
 		if(debug) {
 			display.targetDimensions = [gl.canvas.width, gl.canvas.height];
@@ -409,9 +410,10 @@ function runSimulation(gl, programs, sim) {
 					.setUniforms()
 					.drawArrays(gl.LINES, 12*2); 
 			}
+
 		}
 
-		requestAnimationFrame(step);
+		if(loop) requestAnimationFrame(step);
 	}
 
 	requestAnimationFrame(step);

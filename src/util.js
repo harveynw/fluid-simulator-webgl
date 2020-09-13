@@ -124,10 +124,10 @@ async function getShaderSources(shaderNames) {
 
 	let shaderSources = {};
 	let promises = shaderNames.map(shader => {
-		let vertexShaderPromise = fetch('/shaders/' + shader + '.vsh').then(body => {
+		let vertexShaderPromise = fetch('/shaders/' + shader + '.vert').then(body => {
 			return body.text().then(text => text.replace("@import-util;", util));
 		});
-		let fragmentShaderPromise = fetch('/shaders/' + shader + '.fsh').then(body => {
+		let fragmentShaderPromise = fetch('/shaders/' + shader + '.frag').then(body => {
 			return body.text().then(text => text = text.replace("@import-util;", util));
 		});
 		return Promise.all([vertexShaderPromise, fragmentShaderPromise]);
